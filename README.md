@@ -1,21 +1,16 @@
 # LearningSteps API
 
-Welcome to LearningSteps! LearningSteps is a Python FastAPI + PostgreSQL application that helps people track their daily learning journey. In this project, you will build, extend, and finally deploy LearningSteps to the cloud!
+Welcome to LearningSteps! LearningSteps is a Python FastAPI + PostgreSQL application that helps people track their daily learning journey. This is a reference implementation, deploy this to the cloud!
 
 
 ## Table of Contents
 
 - [🚀 Getting Started](#-getting-started)
-- [🎯 Development Tasks (Your Work!)](#-development-tasks-your-work)
-  - [1. API Implementation (Required)](#1-api-implementation-required)
-  - [2. Logging Setup (Required)](#2-logging-setup-required)
-  - [3. Data Model Improvements (Optional)](#3-data-model-improvements-optional)
-  - [4. Cloud CLI Setup (Required for Deployment)](#4-cloud-cli-setup-required-for-deployment)
+- [⚙️ API Endpoints](#-api-endpoints)
+- [☁️ Azure CLI for Deployment](#️-azure-cli-for-deployment)
 - [📊 Data Schema](#-data-schema)
 - [�️ Explore Your Database (Optional)](#️-explore-your-database-optional)
 - [🔧 Troubleshooting](#-troubleshooting)
-- [🤝 Contributing](#-contributing)
-- [📄 License](#-license)
 
 ## 🚀 Getting Started
 
@@ -25,10 +20,9 @@ Welcome to LearningSteps! LearningSteps is a Python FastAPI + PostgreSQL applica
 - Docker Desktop installed and running
 - VS Code with the Dev Containers extension
 
-### 1. Fork and Clone the Repository
+### 1. Clone the Repository
 
-1. **Fork this repository** to your GitHub account by clicking the "Fork" button
-1. **Clone your fork** to your local machine:
+1. **Clone this repository** to your local machine:
 
    ```bash
    git clone https://github.com/YOUR_USERNAME/learningsteps.git
@@ -88,50 +82,24 @@ Make sure you are in the root of your project in the terminal (inside VS Code, w
 1. **Create your first entry** In the Docs UI Use the POST `/entries` endpoint to create a new journal entry.
 1. **View your entries** using the GET `/entries` endpoint to see what you've created!
 
-**🎯 Once you can create and see entries, you're ready to start implementing the missing endpoints!**
+**🎯 Congratulations! You have a fully functional learning journal API with complete CRUD operations, validation, and logging!**
 
-## Your Learning Goals
+## ⚙️ API Endpoints
 
-Complete a learning journal API that allows users to:
+This learning journal API provides complete CRUD functionality:
 
-- ✅ **Store journal entries** (already implemented)
-- ✅ **Retrieve all journal entries** (already implemented)
-- ❌ **Retrieve single journal entry** (you need to implement)  
-- ❌ **Delete specific journal entries** (you need to implement)
-- ✅ **Update journal entries** (already implemented)
-- ✅ **Delete all entries** (already implemented)
-- ❌ **Setup logging** (you need to implement)
+- **POST /entries** - Create a new journal entry with validation
+- **GET /entries** - Retrieve all journal entries with count
+- **GET /entries/{entry_id}** - Retrieve a single journal entry by ID
+- **PATCH /entries/{entry_id}** - Update an existing journal entry
+- **DELETE /entries/{entry_id}** - Delete a specific journal entry
+- **DELETE /entries** - Delete all journal entries
 
-## 🎯 Development Tasks (Your Work!)
+All endpoints include proper error handling, data validation using Pydantic models, and structured logging for debugging and monitoring.
 
-You'll use **feature branches** and **Pull Requests (PRs)** for each task. Complete these tasks in your forked repository using feature branches.
+## ☁️ Azure CLI for Deployment
 
-### 1. API Implementation (Required)
-
-#### Task 1a: GET Single Entry Endpoint
-
-- Branch: `feature/get-single-entry`
-- [ ] Implement **GET /entries/{entry_id}** in `api/routers/journal_router.py`
-
-#### Task 1b: DELETE Single Entry Endpoint
-
-- Branch: `feature/delete-entry`
-- [ ] Implement **DELETE /entries/{entry_id}** in `api/routers/journal_router.py`
-
-### 2. Logging Setup (Required)
-
-- Branch: `feature/logging-setup`
-- [ ] Configure logging in `api/main.py`
-
-### 3. Data Model Improvements (Optional)
-
-- Branch: `feature/data-model-improvements`  
-- [ ] Add validators to `api/models/entry.py`
-
-### 4. Cloud CLI Setup (Required for Deployment)
-
-- Branch: `feature/cloud-cli-setup`
-- [ ] Uncomment one CLI tool in `.devcontainer/devcontainer.json`
+The dev container includes the Azure CLI pre-installed, allowing you to deploy your API directly to Azure cloud services. Use the `az` command in your terminal to authenticate with Azure, create resources like App Services and PostgreSQL databases, and deploy your application—all from within your development environment.
 
 ## 📊 Data Schema
 
