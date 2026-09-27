@@ -59,6 +59,16 @@ output "k8s_migrator_service_account" {
   value = var.k8s_migrator_service_account
 }
 
+output "ingress_public_ip_name" {
+  description = "For the Service annotation service.beta.kubernetes.io/azure-pip-name."
+  value       = azurerm_public_ip.ingress.name
+}
+
+output "db_subnet_cidr" {
+  description = "Egress target for the API and migration NetworkPolicies."
+  value       = var.subnet_db_prefix
+}
+
 output "ingress_resource_group" {
   description = "For the Service annotation service.beta.kubernetes.io/azure-load-balancer-resource-group."
   value       = azurerm_resource_group.main.name

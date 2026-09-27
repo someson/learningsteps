@@ -58,6 +58,7 @@ resource "azurerm_postgresql_flexible_server" "main" {
 
   lifecycle {
     ignore_changes = [
+      tags["created-on"],
       # zone is assigned by Azure when unspecified; without this, every plan
       # after the first shows a spurious change that would recreate the server.
       zone,

@@ -1,0 +1,187 @@
+# Caddy: the only thing exposed to the internet. Terminates TLS with a real
+# Let's Encrypt certificate for the bare public IP (shortlived profile, ~6
+# days, renewed automatically) and proxies to the API Service.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: caddy
+  namespace: learningsteps
+data:
+  Caddyfile: |
+    {
+        # Unprivileged ports; the Service maps 80/443 onto them.
+        http_port  8080
+        https_port 8443
+
+        # Config comes from this ConfigMap and changes only via a rollout, so
+        # the admin API has nothing to do. Off removes a local attack surface.
+        admin off
+
+        # Clients cannot put an IP address into TLS SNI (RFC 6066), so Caddy
+        # falls back to the socket's local address — the pod IP — to pick a
+        # certificate, while the certificate is for the public IP. Without
+        # default_sni every handshake fails with "tls: internal error".
+        default_sni ${INGRESS_IP}
+
+        email ${ACME_EMAIL}
+
+        servers {
+            # The load balancer forwards TCP only; advertising HTTP/3 (UDP)
+            # would send clients to a port that is not there.
+            protocols h1 h2
+        }
+    }
+
+    ${INGRESS_IP} {
+        tls {
+            issuer acme {
+                # Let's Encrypt issues IP certificates only under this profile.
+                profile shortlived
+            }
+        }
+
+        # Probe and metrics endpoints are for the cluster, not the internet.
+        @internal path /healthz /readyz /metrics
+        respond @internal 404
+
+        reverse_proxy learningsteps-api:8000
+
+        encode gzip
+
+        header {
+            Strict-Transport-Security "max-age=31536000"
+            X-Content-Type-Options "nosniff"
+            Referrer-Policy "no-referrer"
+            -Server
+        }
+
+        log {
+            output stdout
+            format json
+        }
+    }
+---
+# Certificate + ACME account. Without persistence every pod restart requests
+# a new certificate and soon hits Let's Encrypt rate limits.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: caddy-data
+  namespace: learningsteps
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: managed-csi
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: caddy
+  namespace: learningsteps
+  labels:
+    app.kubernetes.io/name: caddy
+    app.kubernetes.io/part-of: learningsteps
+spec:
+  # One replica: the certificate volume is ReadWriteOnce. Recreate, because
+  # a rolling update would start the new pod while the old one still holds
+  # the volume.
+  replicas: 1
+  revisionHistoryLimit: 3
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: caddy
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: caddy
+      annotations:
+        # Changes to the Caddyfile roll the pod (set by render.sh).
+        checksum/caddyfile: "${CADDYFILE_SHA}"
+    spec:
+      serviceAccountName: caddy
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        # Makes the Azure Disk writable for the non-root user.
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: caddy
+          image: ${CADDY_IMAGE}
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: https
+              containerPort: 8443
+          livenessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 15
+          readinessProbe:
+            tcpSocket:
+              port: https
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: config
+              mountPath: /config
+            - name: caddyfile
+              mountPath: /etc/caddy
+              readOnly: true
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: caddy-data
+        - name: config
+          emptyDir:
+            sizeLimit: 16Mi
+        - name: caddyfile
+          configMap:
+            name: caddy
+---
+# The public entry point, on the static IP Terraform created (so the
+# certificate's identity survives Service re-creation).
+apiVersion: v1
+kind: Service
+metadata:
+  name: caddy
+  namespace: learningsteps
+  annotations:
+    service.beta.kubernetes.io/azure-load-balancer-resource-group: "${INGRESS_RG}"
+    service.beta.kubernetes.io/azure-pip-name: "${INGRESS_PIP_NAME}"
+spec:
+  type: LoadBalancer
+  # Keeps the real client IP in Caddy's logs (and in NetworkPolicy).
+  externalTrafficPolicy: Local
+  selector:
+    app.kubernetes.io/name: caddy
+  ports:
+    # Port 80 must stay open permanently: every renewal of the 6-day
+    # certificate is validated over HTTP-01.
+    - name: http
+      port: 80
+      targetPort: http
+    - name: https
+      port: 443
+      targetPort: https

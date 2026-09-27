@@ -20,6 +20,12 @@ resource "azurerm_user_assigned_identity" "workload" {
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name
   tags                = local.tags
+
+  # "created-on" is stamped by an organisation-level Azure Policy; without
+  # this, every plan would try to remove it and the policy would add it back.
+  lifecycle {
+    ignore_changes = [tags["created-on"]]
+  }
 }
 
 # Binds the identity to ONE ServiceAccount in ONE namespace. The subject format
@@ -43,6 +49,12 @@ resource "azurerm_user_assigned_identity" "migrator" {
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name
   tags                = local.tags
+
+  # "created-on" is stamped by an organisation-level Azure Policy; without
+  # this, every plan would try to remove it and the policy would add it back.
+  lifecycle {
+    ignore_changes = [tags["created-on"]]
+  }
 }
 
 resource "azurerm_federated_identity_credential" "migrator" {
@@ -60,6 +72,12 @@ resource "azurerm_user_assigned_identity" "github" {
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name
   tags                = local.tags
+
+  # "created-on" is stamped by an organisation-level Azure Policy; without
+  # this, every plan would try to remove it and the policy would add it back.
+  lifecycle {
+    ignore_changes = [tags["created-on"]]
+  }
 }
 
 # Scoped to a branch: a workflow running on a fork or a feature branch presents

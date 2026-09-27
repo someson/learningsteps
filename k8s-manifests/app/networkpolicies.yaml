@@ -1,0 +1,116 @@
+# Default deny, then only the flows the application needs. Enforced by
+# Calico (network_policy = "calico" in aks.tf).
+#
+#   internet ──80/443──▶ caddy ──8000──▶ api ──5432──▶ snet-db
+#                          │                            ▲
+#                          └──443──▶ Let's Encrypt       │
+#                                           db-migrate ──┘
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: learningsteps
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress", "Egress"]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: learningsteps
+spec:
+  podSelector: {}
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: caddy
+  namespace: learningsteps
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: caddy
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 8080
+        - protocol: TCP
+          port: 8443
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: learningsteps-api
+      ports:
+        - protocol: TCP
+          port: 8000
+    # ACME (Let's Encrypt) over HTTPS; private ranges excluded so Caddy
+    # cannot be used to reach anything inside the VNET.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
+      ports:
+        - protocol: TCP
+          port: 443
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: learningsteps-api
+  namespace: learningsteps
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: learningsteps-api
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: caddy
+      ports:
+        - protocol: TCP
+          port: 8000
+  egress:
+    - to:
+        - ipBlock:
+            cidr: ${DB_SUBNET_CIDR}
+      ports:
+        - protocol: TCP
+          port: 5432
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: db-migrate
+  namespace: learningsteps
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: db-migrate
+  policyTypes: ["Ingress", "Egress"]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: ${DB_SUBNET_CIDR}
+      ports:
+        - protocol: TCP
+          port: 5432

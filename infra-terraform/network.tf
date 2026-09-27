@@ -18,6 +18,12 @@ resource "azurerm_virtual_network" "main" {
   resource_group_name = azurerm_resource_group.main.name
   address_space       = [var.vnet_address_space]
   tags                = local.tags
+
+  # "created-on" is stamped by an organisation-level Azure Policy; without
+  # this, every plan would try to remove it and the policy would add it back.
+  lifecycle {
+    ignore_changes = [tags["created-on"]]
+  }
 }
 
 resource "azurerm_subnet" "aks" {
@@ -41,6 +47,12 @@ resource "azurerm_subnet" "db" {
   virtual_network_name = azurerm_virtual_network.main.name
   address_prefixes     = [var.subnet_db_prefix]
 
+  # Azure adds this endpoint itself when the Flexible Server is created
+  # (backups go to Storage). Declared so the code matches reality.
+  service_endpoint {
+    service = "Microsoft.Storage"
+  }
+
   # Delegation hands the subnet to the PostgreSQL service, which injects the
   # server's NIC here. Azure forbids any other resource in a delegated subnet.
   delegation {
@@ -60,6 +72,12 @@ resource "azurerm_network_security_group" "aks" {
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name
   tags                = local.tags
+
+  # "created-on" is stamped by an organisation-level Azure Policy; without
+  # this, every plan would try to remove it and the policy would add it back.
+  lifecycle {
+    ignore_changes = [tags["created-on"]]
+  }
 }
 
 # Deliberately minimal: one allow rule for the ingress ports, Azure's default
@@ -80,7 +98,10 @@ resource "azurerm_network_security_rule" "aks_allow_ingress_http" {
   source_port_range           = "*"
   destination_port_ranges     = ["80", "443"]
   source_address_prefix       = "Internet"
-  destination_address_prefix  = var.subnet_aks_prefix
+  # The AKS load balancer uses floating IP: packets reach the nodes with the
+  # PUBLIC frontend address as destination, not a node's private IP. A rule
+  # scoped to the subnet CIDR never matches (verified: ACME timed out).
+  destination_address_prefix  = azurerm_public_ip.ingress.ip_address
   resource_group_name         = azurerm_resource_group.main.name
   network_security_group_name = azurerm_network_security_group.aks.name
 }
@@ -95,6 +116,12 @@ resource "azurerm_network_security_group" "db" {
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name
   tags                = local.tags
+
+  # "created-on" is stamped by an organisation-level Azure Policy; without
+  # this, every plan would try to remove it and the policy would add it back.
+  lifecycle {
+    ignore_changes = [tags["created-on"]]
+  }
 }
 
 resource "azurerm_network_security_rule" "db_allow_postgres_from_aks" {
@@ -139,6 +166,12 @@ resource "azurerm_private_dns_zone" "postgres" {
   name                = "${local.name}-${local.suffix}.postgres.database.azure.com"
   resource_group_name = azurerm_resource_group.main.name
   tags                = local.tags
+
+  # "created-on" is stamped by an organisation-level Azure Policy; without
+  # this, every plan would try to remove it and the policy would add it back.
+  lifecycle {
+    ignore_changes = [tags["created-on"]]
+  }
 }
 
 resource "azurerm_private_dns_zone_virtual_network_link" "postgres" {
@@ -147,6 +180,12 @@ resource "azurerm_private_dns_zone_virtual_network_link" "postgres" {
   virtual_network_id   = azurerm_virtual_network.main.id
   registration_enabled = false
   tags                 = local.tags
+
+  # "created-on" is stamped by an organisation-level Azure Policy; without
+  # this, every plan would try to remove it and the policy would add it back.
+  lifecycle {
+    ignore_changes = [tags["created-on"]]
+  }
 }
 
 # --- Ingress public IP ------------------------------------------------------
@@ -162,4 +201,10 @@ resource "azurerm_public_ip" "ingress" {
   allocation_method   = "Static"
   sku                 = "Standard"
   tags                = local.tags
+
+  # "created-on" is stamped by an organisation-level Azure Policy; without
+  # this, every plan would try to remove it and the policy would add it back.
+  lifecycle {
+    ignore_changes = [tags["created-on"]]
+  }
 }

@@ -9,6 +9,12 @@ resource "azurerm_log_analytics_workspace" "main" {
   sku                 = "PerGB2018"
   retention_in_days   = 30
   tags                = local.tags
+
+  # "created-on" is stamped by an organisation-level Azure Policy; without
+  # this, every plan would try to remove it and the policy would add it back.
+  lifecycle {
+    ignore_changes = [tags["created-on"]]
+  }
 }
 
 resource "azurerm_kubernetes_cluster" "main" {
@@ -131,6 +137,7 @@ resource "azurerm_kubernetes_cluster" "main" {
 
   lifecycle {
     ignore_changes = [
+      tags["created-on"],
       # The autoscaler owns this value at runtime; without the exception every
       # plan would try to reset it to var.aks_node_count.
       default_node_pool[0].node_count,

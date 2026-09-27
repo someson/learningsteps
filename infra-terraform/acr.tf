@@ -11,4 +11,10 @@ resource "azurerm_container_registry" "main" {
   admin_enabled = false
 
   tags = local.tags
+
+  # "created-on" is stamped by an organisation-level Azure Policy; without
+  # this, every plan would try to remove it and the policy would add it back.
+  lifecycle {
+    ignore_changes = [tags["created-on"]]
+  }
 }

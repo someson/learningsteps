@@ -1,0 +1,13 @@
+# Applied once by an operator (the CI identity has no rights to create
+# namespaces). Pod Security Admission "restricted" rejects any pod that runs
+# as root, allows privilege escalation, keeps capabilities, or lacks a
+# seccomp profile — so a hardening mistake in a manifest fails loudly.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: learningsteps
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted

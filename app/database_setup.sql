@@ -1,9 +1,10 @@
 -- LearningSteps API Database Setup
--- This file is automatically ran upon the creation of the PostgresSQL container.
--- You will notice the following volume mount in the docker-compose.yml file:
---      
---      volumes:
---        - ../database_setup.sql:/docker-entrypoint-initdb.d/database_setup.sql
+--
+-- Applied in two places, so it must stay plain, idempotent SQL (no psql
+-- meta-commands such as \d):
+--   - locally: mounted into /docker-entrypoint-initdb.d/ by docker-compose.yml,
+--     run once when the postgres volume is empty
+--   - in AKS: run by api/migrate.py (the db-migrate Job) as the app role
 
 -- Creates the entries table
 CREATE TABLE IF NOT EXISTS entries (
@@ -18,18 +19,3 @@ CREATE INDEX IF NOT EXISTS idx_entries_created_at ON entries(created_at);
 
 -- Creates an index on the JSON data for faster searches
 CREATE INDEX IF NOT EXISTS idx_entries_data_gin ON entries USING GIN (data);
-
--- Verify the table was created
-\d entries;
-
--- Test with a sample entry (optional)
--- INSERT INTO entries (id, data, created_at, updated_at) 
--- VALUES (
---     'test-123',
---     '{"work": "Learning SQL", "struggle": "Understanding JSON types", "intention": "Practice more queries"}',
---     NOW(),
---     NOW()
--- );
-
--- Query the test entry
--- SELECT * FROM entries WHERE id = 'test-123';

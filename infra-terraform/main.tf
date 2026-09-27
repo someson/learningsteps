@@ -27,4 +27,10 @@ resource "azurerm_resource_group" "main" {
   name     = "${local.name}-rg"
   location = var.location
   tags     = local.tags
+
+  # "created-on" is stamped by an organisation-level Azure Policy; without
+  # this, every plan would try to remove it and the policy would add it back.
+  lifecycle {
+    ignore_changes = [tags["created-on"]]
+  }
 }

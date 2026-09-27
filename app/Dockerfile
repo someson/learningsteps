@@ -41,7 +41,9 @@ COPY --from=builder /app/venv /app/venv
 
 # Code is owned by root and only readable by the app user: a compromised
 # process cannot modify what it runs. Works with readOnlyRootFilesystem.
+# database_setup.sql is read by api/migrate.py (the db-migrate Job).
 COPY api/ /app/api/
+COPY database_setup.sql /app/database_setup.sql
 
 WORKDIR /app/api
 
@@ -57,4 +59,7 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
 
 # No --reload: that is a development flag. 0.0.0.0 is correct inside a
 # container — exposure is decided by the published port / Kubernetes Service.
-ENTRYPOINT ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# ENTRYPOINT is only the interpreter so the migration Job can run the same
+# image with args ["migrate.py"].
+ENTRYPOINT ["python"]
+CMD ["-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

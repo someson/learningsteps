@@ -37,7 +37,7 @@ provider "azurerm" {
 
 variable "location" {
   type        = string
-  default     = "westeurope"
+  default     = "swedencentral"
   description = "Azure region for the state storage account."
 }
 
@@ -66,6 +66,11 @@ resource "random_string" "suffix" {
 resource "azurerm_resource_group" "tfstate" {
   name     = var.state_resource_group_name
   location = var.location
+
+  # "created-on" is stamped by an organisation-level Azure Policy.
+  lifecycle {
+    ignore_changes = [tags["created-on"]]
+  }
 }
 
 resource "azurerm_storage_account" "tfstate" {
@@ -107,6 +112,11 @@ resource "azurerm_storage_account" "tfstate" {
     container_delete_retention_policy {
       days = 30
     }
+  }
+
+  # "created-on" is stamped by an organisation-level Azure Policy.
+  lifecycle {
+    ignore_changes = [tags["created-on"]]
   }
 }
 

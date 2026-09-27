@@ -9,6 +9,5 @@ test_api.py
 requirements-dev.txt
 start.sh
 README.md
-database_setup.sql
 Dockerfile
 .dockerignore
