@@ -80,15 +80,22 @@ resource "azurerm_user_assigned_identity" "github" {
   }
 }
 
-# Scoped to a branch: a workflow running on a fork or a feature branch presents
-# a different subject and is refused. Deployment rights cannot be obtained by
-# opening a pull request.
-resource "azurerm_federated_identity_credential" "github_branch" {
-  name                      = "${local.name}-github-branch"
+# Scoped to a GitHub *environment*, not a branch. A job that declares
+# `environment: production` receives an OIDC token with the subject below;
+# any other job — a feature branch, a PR, or a job on main that skips the
+# environment — presents a different subject and is refused. That makes the
+# environment's protection rules (deployment branches limited to main,
+# optional required reviewers) the single gate in front of Azure.
+#
+# The environment's "deployment branches" rule MUST be restricted to the
+# deploy branch on GitHub; otherwise any branch could declare the
+# environment and obtain this token. See NEXT_SESSION.md / README.
+resource "azurerm_federated_identity_credential" "github_environment" {
+  name                      = "${local.name}-github-env-${var.github_environment}"
   user_assigned_identity_id = azurerm_user_assigned_identity.github.id
   audience                  = ["api://AzureADTokenExchange"]
   issuer                    = "https://token.actions.githubusercontent.com"
-  subject                   = "repo:${var.github_repository}:ref:refs/heads/${var.github_branch}"
+  subject                   = "repo:${var.github_repository}:environment:${var.github_environment}"
 }
 
 # No credential for pull_request events. This identity can push images and

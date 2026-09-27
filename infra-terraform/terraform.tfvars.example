@@ -1,7 +1,7 @@
 # Copy to terraform.tfvars (gitignored) and fill in.
 
 github_repository = "someson/learningsteps"
-github_branch     = "main"
+github_environment = "production"
 
 # Your public IP as /32. Find it with: curl -s https://api.ipify.org
 # Key Vault, the AKS API server and the state storage accept only these.

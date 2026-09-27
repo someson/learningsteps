@@ -63,12 +63,14 @@ yet. Wait a minute and retry.
 
 ## Design notes
 
-**No secrets in CI, anywhere.** Both identities use OIDC federation rather
-than client secrets. GitHub Actions presents a token whose subject is
-`repo:<owner>/<name>:ref:refs/heads/main`; Entra ID accepts it only for that
-exact repo and branch. A fork or a feature branch produces a different subject
-and is refused, so deployment rights cannot be obtained by opening a pull
-request. Pods likewise present a token whose subject is
+**No secrets in CI, anywhere.** All identities use OIDC federation rather
+than client secrets. The CI identity trusts exactly one subject,
+`repo:<owner>/<name>:environment:production` — only a job that declares the
+`production` GitHub environment gets an Azure token. The environment is
+restricted on GitHub to deployments from `main`, so a fork, a feature branch,
+a pull request, or a job on `main` that skips the environment is refused.
+This makes the environment's protection rules (branch restriction, optional
+required reviewers) the single gate in front of Azure. Pods likewise present a token whose subject is
 `system:serviceaccount:<namespace>:<name>` — a pod using any other
 ServiceAccount gets nothing.
 

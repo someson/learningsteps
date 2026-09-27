@@ -129,10 +129,10 @@ variable "github_repository" {
   }
 }
 
-variable "github_branch" {
+variable "github_environment" {
   type        = string
-  default     = "main"
-  description = "Branch permitted to deploy. The federated credential matches this exact ref."
+  default     = "production"
+  description = "GitHub Actions environment allowed to deploy. The federated credential matches this exact environment; restrict its deployment branches to main on GitHub."
 }
 
 # --- Kubernetes identity binding -------------------------------------------

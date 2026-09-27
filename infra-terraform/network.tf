@@ -90,14 +90,14 @@ resource "azurerm_network_security_group" "aks" {
 # renewal (every few days for a 6-day IP certificate) fails silently.
 # Port 80 is not a redirect convenience here; it is part of the TLS design.
 resource "azurerm_network_security_rule" "aks_allow_ingress_http" {
-  name                        = "Allow-Ingress-HTTP-HTTPS"
-  priority                    = 100
-  direction                   = "Inbound"
-  access                      = "Allow"
-  protocol                    = "Tcp"
-  source_port_range           = "*"
-  destination_port_ranges     = ["80", "443"]
-  source_address_prefix       = "Internet"
+  name                    = "Allow-Ingress-HTTP-HTTPS"
+  priority                = 100
+  direction               = "Inbound"
+  access                  = "Allow"
+  protocol                = "Tcp"
+  source_port_range       = "*"
+  destination_port_ranges = ["80", "443"]
+  source_address_prefix   = "Internet"
   # The AKS load balancer uses floating IP: packets reach the nodes with the
   # PUBLIC frontend address as destination, not a node's private IP. A rule
   # scoped to the subnet CIDR never matches (verified: ACME timed out).
