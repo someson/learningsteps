@@ -1,0 +1,14 @@
+# Build context is app/; only api/ is copied. Everything else stays out so it
+# cannot leak into a layer by accident.
+.env
+.env-*
+venv/
+**/__pycache__/
+**/*.py[cod]
+test_api.py
+requirements-dev.txt
+start.sh
+README.md
+database_setup.sql
+Dockerfile
+.dockerignore

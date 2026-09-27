@@ -169,3 +169,20 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# Terraform — state holds the Postgres password in cleartext; never commit
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+*.tfplan
+crash.log
+backend.hcl
+
+# Local tooling / OS
+.DS_Store
+
+# Working notes in the repo root (TODO, EXERCISE, CLAUDE). Anchored with a
+# leading slash, so app/README.md and infra-terraform/README.md stay tracked.
+/*.md

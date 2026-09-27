@@ -10,9 +10,22 @@ from repositories.interface_repository import DatabaseInterface
 
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL")
-if not DATABASE_URL:
-    raise ValueError("DATABASE_URL environment variable is missing")
+
+def get_database_url() -> str:
+    """Read the DSN from DATABASE_URL_FILE (a mounted secret) or DATABASE_URL.
+
+    The file variant keeps the password out of the process environment, where
+    it would be visible in `kubectl describe pod` and inherited by children.
+    """
+    path = os.getenv("DATABASE_URL_FILE")
+    if path:
+        with open(path) as f:
+            return f.read().strip()
+    url = os.getenv("DATABASE_URL")
+    if not url:
+        raise ValueError("Set DATABASE_URL or DATABASE_URL_FILE")
+    return url
+
 
 class PostgresDB(DatabaseInterface):
     @staticmethod
@@ -21,10 +34,21 @@ class PostgresDB(DatabaseInterface):
         if isinstance(obj, datetime):
                 return obj.isoformat()
         raise TypeError(f"Type {type(obj)} not serializable")
-        
+
+    # One pool per process, opened at startup (see main.py lifespan). Sized so
+    # that max HPA replicas x max_size stays well under the server's
+    # max_connections (~50 on B1ms).
     async def __aenter__(self):
-        self.pool = await asyncpg.create_pool(DATABASE_URL)
+        self.pool = await asyncpg.create_pool(
+            get_database_url(),
+            min_size=1,
+            max_size=int(os.getenv("DB_POOL_MAX_SIZE", "5")),
+        )
         return self
+
+    async def ping(self) -> None:
+        async with self.pool.acquire() as conn:
+            await conn.fetchval("SELECT 1")
 
     async def __aexit__(self, exc_type, exc_value, traceback):
         await self.pool.close()

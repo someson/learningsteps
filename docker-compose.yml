@@ -1,0 +1,46 @@
+# Local run: docker compose up --build
+# Then open http://localhost:8000/docs
+#
+# Uses the same image that CI will build and push to ACR, so what works here
+# is what runs in AKS. Needs app/.env (cp app/.env-sample app/.env).
+
+name: learningsteps
+
+services:
+  api:
+    build: ./app
+    image: learningsteps-api:local
+    env_file: [./app/.env]
+    ports:
+      # Bound to loopback: reachable from this machine's browser only, not
+      # from the rest of the LAN.
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    restart: unless-stopped
+
+  postgres:
+    # Same major version as the Azure Flexible Server (var.postgres_version).
+    image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+    env_file: [./app/.env]
+    # No published port: only the api service reaches it, over the compose
+    # network. Uncomment to connect a local SQL client.
+    # ports: ["127.0.0.1:5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Applied once, on first start with an empty volume.
+      - ./app/database_setup.sql:/docker-entrypoint-initdb.d/database_setup.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  pgdata:

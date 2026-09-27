@@ -1,12 +1,11 @@
 import logging
-from typing import AsyncGenerator
 from fastapi import APIRouter, HTTPException, Request, Depends
-from repositories.postgres_repository import PostgresDB
 from services.entry_service import EntryService
-from models.entry import Entry, EntryCreate
+from models.entry import Entry, EntryCreate, EntryUpdate
 
 
 router = APIRouter()
+logger = logging.getLogger("journal")
 
 # TODO: Add authentication middleware
 # TODO: Add request validation middleware
@@ -14,9 +13,8 @@ router = APIRouter()
 # TODO: Add API versioning
 # TODO: Add response caching
 
-async def get_entry_service() -> AsyncGenerator[EntryService, None]:
-    async with PostgresDB() as db:
-        yield EntryService(db)
+def get_entry_service(request: Request) -> EntryService:
+    return EntryService(request.app.state.db)
 
 @router.post("/entries")
 async def create_entry(entry_data: EntryCreate, entry_service: EntryService = Depends(get_entry_service)):
@@ -37,8 +35,12 @@ async def create_entry(entry_data: EntryCreate, entry_service: EntryService = De
             "detail": "Entry created successfully", 
             "entry": created_entry
         }
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Error creating entry: {str(e)}")
+    except Exception:
+        # Input is already validated by EntryCreate, so anything here is a
+        # server-side failure. Log the details; never echo them to the client,
+        # where they would disclose schema, driver and connection information.
+        logger.exception("Error creating entry")
+        raise HTTPException(status_code=500, detail="Error creating entry")
 
 # Implements GET /entries endpoint to list all journal entries
 # Example response: [{"id": "123", "work": "...", "struggle": "...", "intention": "..."}]
@@ -58,9 +60,12 @@ async def get_entry(request: Request, entry_id: str, entry_service: EntryService
     return result
 
 @router.patch("/entries/{entry_id}")
-async def update_entry(entry_id: str, entry_update: dict, entry_service: EntryService = Depends(get_entry_service)):
+async def update_entry(entry_id: str, entry_update: EntryUpdate, entry_service: EntryService = Depends(get_entry_service)):
     """Update a journal entry"""
-    result = await entry_service.update_entry(entry_id, entry_update)
+    changes = entry_update.model_dump(exclude_unset=True)
+    if not changes:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    result = await entry_service.update_entry(entry_id, changes)
     if not result:
     
         raise HTTPException(status_code=404, detail="Entry not found")

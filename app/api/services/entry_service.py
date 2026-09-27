@@ -48,7 +48,12 @@ class EntryService:
             logger.warning("Entry %s not found. Update aborted.", entry_id)
             return None
 
+        # Merge onto the existing entry: the whole JSONB document is rewritten,
+        # so a partial update would otherwise drop every field not sent.
         updated_data = {
+            "work": existing_entry.get("work"),
+            "struggle": existing_entry.get("struggle"),
+            "intention": existing_entry.get("intention"),
             **updated_data,
             "id": entry_id,
             "updated_at": datetime.now(timezone.utc),

@@ -1,0 +1,8 @@
+# Pinned so the image is reproducible and Trivy scans the versions that
+# actually ship. Bump deliberately, e.g. via Dependabot.
+fastapi==0.141.1
+starlette==1.7.0
+pydantic==2.13.5
+uvicorn==0.54.0
+python-dotenv==1.2.3
+asyncpg==0.31.0

@@ -1,0 +1,103 @@
+###############################################################################
+# Managed identities and federated credentials
+#
+# Two separate identities, each with the narrowest useful role set:
+#
+#   workload — assumed by the application pods; reads one Key Vault secret
+#   migrator — assumed by the schema-migration Job; reads the admin DSN
+#   github   — assumed by GitHub Actions; pushes images and deploys to AKS
+#
+# Neither has a client secret. Both use OpenID Connect federation: the caller
+# presents a token issued by a trusted issuer (the AKS OIDC endpoint, or
+# GitHub's), and Entra ID exchanges it for an Azure token provided the token's
+# subject matches exactly. Nothing long-lived is stored anywhere.
+###############################################################################
+
+# --- Pod identity -----------------------------------------------------------
+
+resource "azurerm_user_assigned_identity" "workload" {
+  name                = "${local.name}-workload-id"
+  location            = azurerm_resource_group.main.location
+  resource_group_name = azurerm_resource_group.main.name
+  tags                = local.tags
+}
+
+# Binds the identity to ONE ServiceAccount in ONE namespace. The subject format
+# system:serviceaccount:<namespace>:<name> is fixed by Kubernetes; a pod using
+# any other ServiceAccount gets no token, which is the point.
+resource "azurerm_federated_identity_credential" "workload" {
+  name                      = "${local.name}-workload-federation"
+  user_assigned_identity_id = azurerm_user_assigned_identity.workload.id
+  audience                  = ["api://AzureADTokenExchange"]
+  issuer                    = azurerm_kubernetes_cluster.main.oidc_issuer_url
+  subject                   = "system:serviceaccount:${var.k8s_namespace}:${var.k8s_service_account}"
+}
+
+# --- Schema-migration identity ---------------------------------------------
+
+# Separate from the API pods so that a compromised API pod cannot obtain the
+# server-admin connection string. Only the migration Job's ServiceAccount can
+# assume this identity.
+resource "azurerm_user_assigned_identity" "migrator" {
+  name                = "${local.name}-migrator-id"
+  location            = azurerm_resource_group.main.location
+  resource_group_name = azurerm_resource_group.main.name
+  tags                = local.tags
+}
+
+resource "azurerm_federated_identity_credential" "migrator" {
+  name                      = "${local.name}-migrator-federation"
+  user_assigned_identity_id = azurerm_user_assigned_identity.migrator.id
+  audience                  = ["api://AzureADTokenExchange"]
+  issuer                    = azurerm_kubernetes_cluster.main.oidc_issuer_url
+  subject                   = "system:serviceaccount:${var.k8s_namespace}:${var.k8s_migrator_service_account}"
+}
+
+# --- GitHub Actions identity ------------------------------------------------
+
+resource "azurerm_user_assigned_identity" "github" {
+  name                = "${local.name}-github-id"
+  location            = azurerm_resource_group.main.location
+  resource_group_name = azurerm_resource_group.main.name
+  tags                = local.tags
+}
+
+# Scoped to a branch: a workflow running on a fork or a feature branch presents
+# a different subject and is refused. Deployment rights cannot be obtained by
+# opening a pull request.
+resource "azurerm_federated_identity_credential" "github_branch" {
+  name                      = "${local.name}-github-branch"
+  user_assigned_identity_id = azurerm_user_assigned_identity.github.id
+  audience                  = ["api://AzureADTokenExchange"]
+  issuer                    = "https://token.actions.githubusercontent.com"
+  subject                   = "repo:${var.github_repository}:ref:refs/heads/${var.github_branch}"
+}
+
+# No credential for pull_request events. This identity can push images and
+# deploy, and a same-repo PR branch would otherwise get exactly those rights.
+# Build, test and scan jobs on PRs need no Azure access at all.
+
+resource "azurerm_role_assignment" "github_acr_push" {
+  scope                = azurerm_container_registry.main.id
+  role_definition_name = "AcrPush"
+  principal_id         = azurerm_user_assigned_identity.github.principal_id
+}
+
+# "Cluster User" grants only the ability to fetch a kubeconfig (and to use
+# `az aks command invoke`). What the pipeline may then DO inside the cluster
+# is decided by the Azure RBAC assignment below, enforced because the cluster
+# has azure_rbac_enabled.
+resource "azurerm_role_assignment" "github_aks_user" {
+  scope                = azurerm_kubernetes_cluster.main.id
+  role_definition_name = "Azure Kubernetes Service Cluster User Role"
+  principal_id         = azurerm_user_assigned_identity.github.principal_id
+}
+
+# Lets the pipeline apply manifests via Entra-authenticated kubectl.
+# Narrower than "Cluster Admin", which would also permit cluster-wide RBAC
+# changes and node access.
+resource "azurerm_role_assignment" "github_aks_rbac_writer" {
+  scope                = "${azurerm_kubernetes_cluster.main.id}/namespaces/${var.k8s_namespace}"
+  role_definition_name = "Azure Kubernetes Service RBAC Writer"
+  principal_id         = azurerm_user_assigned_identity.github.principal_id
+}
