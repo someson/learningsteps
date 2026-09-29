@@ -363,13 +363,13 @@ function Journal({
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" size="sm" className="ml-1" aria-label="Account">
-                    <UserIcon /> <span className="hidden max-w-32 truncate sm:inline">{user.username}</span>
+                    <UserIcon /> <span className="hidden whitespace-nowrap sm:inline">{user.username}</span>
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuContent align="end" className="min-w-48">
                   <DropdownMenuLabel className="text-muted-foreground text-xs font-normal">
                     Signed in as
-                    <div className="text-foreground truncate text-sm font-medium">{user.username}</div>
+                    <div className="text-foreground text-sm font-medium break-words">{user.username}</div>
                   </DropdownMenuLabel>
                   <DropdownMenuSeparator />
                   {user.is_admin && (

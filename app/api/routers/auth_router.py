@@ -192,7 +192,8 @@ async def login(body: LoginRequest, request: Request, response: Response):
     await db.create_session(user["id"], token_hash(token), SESSION_TTL_SECONDS)
     _start_session(response, token)
     audit.info("login ok user=%s ip=%s", username, ip)
-    return _user_out(request, user)
+    # Same shape as /me (display name, admin flag), read back from the session.
+    return _user_out(request, await db.get_session_user(token_hash(token)))
 
 
 @router.post("/logout", status_code=204)
