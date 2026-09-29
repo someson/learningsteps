@@ -1,36 +1,38 @@
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List
+from typing import Any, Dict
+from uuid import UUID
 
 
 class DatabaseInterface(ABC):
-    """Abstract interface for database operations."""
-    
+    """Abstract interface for entry storage. Every operation is scoped to the
+    owning user; deletes are soft and can be undone with restore_entry."""
+
     @abstractmethod
-    async def create_entry(self, entry_data: Dict[str, Any]) -> None:
+    async def create_entry(self, user_id: UUID, entry_data: Dict[str, Any]) -> Dict[str, Any]:
         """Create a new journal entry."""
-        pass
 
     @abstractmethod
-    async def get_all_entries(self) -> List[Dict[str, Any]]:
-        """Retrieve all journal entries."""
-        pass
+    async def list_entries(
+        self, user_id: UUID, *, limit: int, offset: int, query: str, sort: str, direction: str
+    ) -> Dict[str, Any]:
+        """One page of the user's entries, with match and total counts."""
 
     @abstractmethod
-    async def get_entry(self, entry_id: str) -> Dict[str, Any]:
+    async def get_entry(self, user_id: UUID, entry_id: str) -> Dict[str, Any] | None:
         """Retrieve a specific journal entry by ID."""
-        pass
 
     @abstractmethod
-    async def update_entry(self, entry_id: str, updated_data: Dict[str, Any]) -> None:
-        """Update an existing journal entry."""
-        pass
+    async def update_entry(self, user_id: UUID, entry_id: str, changes: Dict[str, Any]) -> Dict[str, Any] | None:
+        """Merge the given fields into an entry."""
 
     @abstractmethod
-    async def delete_entry(self, entry_id: str) -> None:
-        """Delete a specific journal entry."""
-        pass
+    async def delete_entry(self, user_id: UUID, entry_id: str) -> bool:
+        """Soft-delete one entry. False if it did not exist."""
 
     @abstractmethod
-    async def delete_all_entries(self) -> None:
-        """Delete all journal entries."""
-        pass
+    async def restore_entry(self, user_id: UUID, entry_id: str) -> Dict[str, Any] | None:
+        """Undo a soft delete."""
+
+    @abstractmethod
+    async def delete_all_entries(self, user_id: UUID) -> int:
+        """Soft-delete all of the user's entries; returns how many."""

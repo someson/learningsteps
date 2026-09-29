@@ -1,76 +1,39 @@
-from datetime import datetime, timezone
-from typing import List, Dict, Any
 import logging
+from datetime import datetime, timezone
+from typing import Any, Dict
+from uuid import UUID
 
 from repositories.postgres_repository import PostgresDB
 
 logger = logging.getLogger("journal")
 
+
 class EntryService:
-    def __init__(self, db: PostgresDB):
+    """Entry operations for one user. Every call is scoped to that user, so
+    one account can neither see nor change another's entries."""
+
+    def __init__(self, db: PostgresDB, user_id: UUID):
         self.db = db
-        logger.debug("EntryService initialized with PostgresDB client.")
+        self.user_id = user_id
 
     async def create_entry(self, entry_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Creates a new entry."""
-        logger.info("Creating entry")
-        now = datetime.now(timezone.utc)
-        entry = {
-            **entry_data,
-            "created_at": now,
-            "updated_at": now
-        }
-        logger.debug("Entry created: %s", entry)
-        return await self.db.create_entry(entry)
+        entry = {**entry_data, "created_at": datetime.now(timezone.utc)}
+        return await self.db.create_entry(self.user_id, entry)
 
-    async def get_all_entries(self) -> List[Dict[str, Any]]:
-        """Gets all entries."""
-        logger.info("Fetching all entries")
-        entries = await self.db.get_all_entries()
-        logger.debug("Fetched %d entries", len(entries))
-        return entries
+    async def list_entries(self, **params: Any) -> Dict[str, Any]:
+        return await self.db.list_entries(self.user_id, **params)
 
-    async def get_entry(self, entry_id: str) -> Dict[str, Any]:
-        """Gets a specific entry."""
-        logger.info("Fetching entry %s", entry_id)
-        entry = await self.db.get_entry(entry_id)
-        if entry:
-            logger.debug("Entry %s found", entry_id)
-        else:
-            logger.warning("Entry %s not found", entry_id)
-        return entry
+    async def get_entry(self, entry_id: str) -> Dict[str, Any] | None:
+        return await self.db.get_entry(self.user_id, entry_id)
 
-    async def update_entry(self, entry_id: str, updated_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Updates an existing entry."""
-        logger.info("Updating entry %s", entry_id)
-        existing_entry = await self.db.get_entry(entry_id)
-        if not existing_entry:
-            logger.warning("Entry %s not found. Update aborted.", entry_id)
-            return None
+    async def update_entry(self, entry_id: str, changes: Dict[str, Any]) -> Dict[str, Any] | None:
+        return await self.db.update_entry(self.user_id, entry_id, changes)
 
-        # Merge onto the existing entry: the whole JSONB document is rewritten,
-        # so a partial update would otherwise drop every field not sent.
-        updated_data = {
-            "work": existing_entry.get("work"),
-            "struggle": existing_entry.get("struggle"),
-            "intention": existing_entry.get("intention"),
-            **updated_data,
-            "id": entry_id,
-            "updated_at": datetime.now(timezone.utc),
-            "created_at": existing_entry.get("created_at")
-        }
-        await self.db.update_entry(entry_id, updated_data)
-        logger.debug("Entry %s updated", entry_id)
-        return updated_data
+    async def delete_entry(self, entry_id: str) -> bool:
+        return await self.db.delete_entry(self.user_id, entry_id)
 
-    async def delete_entry(self, entry_id: str) -> None:
-        """Deletes a specific entry."""
-        logger.info("Deleting entry %s", entry_id)
-        await self.db.delete_entry(entry_id)
-        logger.debug("Entry %s deleted", entry_id)
+    async def restore_entry(self, entry_id: str) -> Dict[str, Any] | None:
+        return await self.db.restore_entry(self.user_id, entry_id)
 
-    async def delete_all_entries(self) -> None:
-        """Deletes all entries."""
-        logger.info("Deleting all entries")
-        await self.db.delete_all_entries()
-        logger.debug("All entries deleted")
+    async def delete_all_entries(self) -> int:
+        return await self.db.delete_all_entries(self.user_id)

@@ -1,185 +1,180 @@
 #!/usr/bin/env python3
 """
-Simple test script for the LearningSteps API
-Tests all available endpoints
+End-to-end checks for the LearningSteps API: CRUD, authentication, per-user
+isolation and the HTTP hardening. Runs against a live stack.
+
+Needs two existing accounts (create them with api/create_user.py):
+  TEST_USER / TEST_PASSWORD     default: alice / alice-password-1
+  TEST_USER2 / TEST_PASSWORD2   default: bob / bob-password-123
+
+  BASE_URL=http://localhost:8000 python test_api.py
 """
 
 import os
 import sys
-import requests
-import json
-from datetime import datetime
+import uuid
 
-# API base URL (override for a deployed instance: BASE_URL=https://<ip> python test_api.py)
+import requests
+
 BASE_URL = os.getenv("BASE_URL", "http://localhost:8000")
 API_URL = f"{BASE_URL}/api"
 TIMEOUT = 10  # seconds per request
 
-# Requests that did not return 2xx; a non-empty list makes the script exit 1 (CI gate)
+USER1 = (os.getenv("TEST_USER", "alice"), os.getenv("TEST_PASSWORD", "alice-password-1"))
+USER2 = (os.getenv("TEST_USER2", "bob"), os.getenv("TEST_PASSWORD2", "bob-password-123"))
+
 FAILURES = []
 
-def print_section(title):
-    """Print a formatted section header"""
-    print("\n" + "="*60)
-    print(f"  {title}")
-    print("="*60)
+ENTRY = {
+    "work": "Learned FastAPI basics and tested API endpoints",
+    "struggle": "Understanding async/await patterns in Python",
+    "intention": "Build a complete test suite for the API",
+}
 
-def print_response(response):
-    """Pretty print API response"""
-    print(f"Status Code: {response.status_code}")
-    if not response.ok:
-        FAILURES.append(f"{response.request.method} {response.request.path_url} -> {response.status_code}")
-    try:
-        print(f"Response: {json.dumps(response.json(), indent=2, default=str)}")
-    except ValueError:  # body is not JSON
-        print(f"Response: {response.text}")
 
-def test_create_entry():
-    """Test POST /api/entries - Create a new journal entry"""
-    print_section("TEST 1: Create a New Entry")
-    
-    entry_data = {
-        "work": "Learned FastAPI basics and tested API endpoints",
-        "struggle": "Understanding async/await patterns in Python",
-        "intention": "Build a complete test suite for the API"
-    }
-    
-    response = requests.post(f"{API_URL}/entries", json=entry_data, timeout=TIMEOUT)
-    print_response(response)
-    
-    if response.status_code == 200:
-        return response.json().get("entry", {}).get("id")
-    return None
+def section(title):
+    print("\n" + "=" * 60 + f"\n  {title}\n" + "=" * 60)
 
-def test_get_all_entries():
-    """Test GET /api/entries - Get all journal entries"""
-    print_section("TEST 2: Get All Entries")
-    
-    response = requests.get(f"{API_URL}/entries", timeout=TIMEOUT)
-    print_response(response)
-    
-    if response.status_code == 200:
-        entries = response.json().get("entries", [])
-        if entries:
-            return entries[0].get("id")
-    return None
 
-def test_get_single_entry(entry_id):
-    """Test GET /api/entries/{entry_id} - Get a single entry"""
-    print_section("TEST 3: Get Single Entry")
-    
-    if not entry_id:
-        print("⚠️  No entry ID available, skipping test")
-        return
-    
-    response = requests.get(f"{API_URL}/entries/{entry_id}", timeout=TIMEOUT)
-    print_response(response)
+def check(name, condition, detail=""):
+    print(f"  {'✅' if condition else '❌'} {name}" + (f"  ({detail})" if detail and not condition else ""))
+    if not condition:
+        FAILURES.append(name)
 
-def test_update_entry(entry_id):
-    """Test PATCH /api/entries/{entry_id} - Update an entry"""
-    print_section("TEST 4: Update Entry")
-    
-    if not entry_id:
-        print("⚠️  No entry ID available, skipping test")
-        return
-    
-    update_data = {
-        "work": "Updated: Completed API testing script"
-    }
-    
-    response = requests.patch(f"{API_URL}/entries/{entry_id}", json=update_data, timeout=TIMEOUT)
-    print_response(response)
 
-def test_delete_single_entry(entry_id):
-    """Test DELETE /api/entries/{entry_id} - Delete a specific entry"""
-    print_section("TEST 5: Delete Single Entry")
-    
-    if not entry_id:
-        print("⚠️  No entry ID available, skipping test")
-        return
-    
-    response = requests.delete(f"{API_URL}/entries/{entry_id}", timeout=TIMEOUT)
-    print_response(response)
+def expect(name, response, status):
+    check(f"{name} -> {status}", response.status_code == status, f"got {response.status_code}: {response.text[:200]}")
+    return response
 
-def test_delete_all_entries():
-    """Test DELETE /api/entries - Delete all entries"""
-    print_section("TEST 6: Delete All Entries")
-    
-    response = requests.delete(f"{API_URL}/entries", timeout=TIMEOUT)
-    print_response(response)
 
-def test_web_ui():
-    """Test GET / - the web UI is served as HTML"""
-    print_section("Web UI")
+def login(username, password):
+    s = requests.Session()
+    r = s.post(f"{API_URL}/auth/login", json={"username": username, "password": password}, timeout=TIMEOUT)
+    expect(f"login {username}", r, 200)
+    return s
 
-    response = requests.get(f"{BASE_URL}/", timeout=TIMEOUT)
-    print(f"Status Code: {response.status_code}")
-    content_type = response.headers.get("content-type", "")
-    print(f"Content-Type: {content_type}")
-    if not response.ok or not content_type.startswith("text/html"):
-        FAILURES.append(f"GET / -> {response.status_code} {content_type}")
 
-def test_api_health():
-    """Check if API is accessible"""
-    print_section("API Health Check")
-    
-    try:
-        response = requests.get(f"{BASE_URL}/docs", timeout=TIMEOUT)
-        if response.status_code == 200:
-            print("✅ API is running and accessible")
-            return True
-        else:
-            print(f"⚠️  API returned status code: {response.status_code}")
-            return False
-    except requests.exceptions.ConnectionError:
-        print("❌ Cannot connect to API. Make sure it's running on http://localhost:8000")
-        return False
+def test_public_surface():
+    section("Public surface")
+    r = requests.get(f"{BASE_URL}/", timeout=TIMEOUT)
+    expect("GET / (web UI)", r, 200)
+    check("UI is HTML", r.headers.get("content-type", "").startswith("text/html"))
+    csp = r.headers.get("content-security-policy", "")
+    check("UI has a CSP without unsafe-inline scripts", "script-src 'self'" in csp and "frame-ancestors 'none'" in csp)
+    check("X-Frame-Options DENY", r.headers.get("x-frame-options") == "DENY")
+    check("nosniff", r.headers.get("x-content-type-options") == "nosniff")
+    check("X-Request-ID present", bool(r.headers.get("x-request-id")))
+
+    expect("GET /api/entries without session", requests.get(f"{API_URL}/entries", timeout=TIMEOUT), 401)
+    expect("GET /api/auth/me without session", requests.get(f"{API_URL}/auth/me", timeout=TIMEOUT), 401)
+    r = requests.get(f"{API_URL}/entries", cookies={"session": "forged", "__Host-session": "forged"}, timeout=TIMEOUT)
+    expect("forged session cookie", r, 401)
+
+
+def test_login_rules():
+    section("Login")
+    r = requests.post(f"{API_URL}/auth/login", json={"username": USER1[0], "password": "wrong-password"}, timeout=TIMEOUT)
+    expect("wrong password", r, 401)
+    unknown = requests.post(f"{API_URL}/auth/login", json={"username": "nobody-" + uuid.uuid4().hex[:8], "password": "x"}, timeout=TIMEOUT)
+    expect("unknown user", unknown, 401)
+    check("same message for unknown user and wrong password", r.json() == unknown.json())
+
+    # Throttling: a throwaway username, so real accounts are not locked out.
+    victim = "throttle-" + uuid.uuid4().hex[:8]
+    statuses = [
+        requests.post(f"{API_URL}/auth/login", json={"username": victim, "password": "guess"}, timeout=TIMEOUT).status_code
+        for _ in range(6)
+    ]
+    check("6th failed login is throttled (429)", statuses[-1] == 429, str(statuses))
+
+
+def test_crud(s):
+    section("CRUD")
+    r = expect("POST /api/entries", s.post(f"{API_URL}/entries", json=ENTRY, timeout=TIMEOUT), 200)
+    entry_id = r.json()["entry"]["id"]
+
+    r = expect("GET /api/entries", s.get(f"{API_URL}/entries", timeout=TIMEOUT), 200)
+    body = r.json()
+    check("list has count/total/limit/offset", {"entries", "count", "total", "limit", "offset"} <= body.keys())
+    check("API responses are not cached", r.headers.get("cache-control") == "no-store")
+
+    expect("GET /api/entries/{id}", s.get(f"{API_URL}/entries/{entry_id}", timeout=TIMEOUT), 200)
+    r = expect("PATCH /api/entries/{id}", s.patch(f"{API_URL}/entries/{entry_id}", json={"work": "Updated: Completed API testing script"}, timeout=TIMEOUT), 200)
+    check("PATCH keeps fields that were not sent", r.json()["struggle"] == ENTRY["struggle"])
+
+    q = s.get(f"{API_URL}/entries", params={"q": "Completed API testing"}, timeout=TIMEOUT).json()
+    check("search finds the updated entry", any(e["id"] == entry_id for e in q["entries"]))
+    q = s.get(f"{API_URL}/entries", params={"q": "%"}, timeout=TIMEOUT).json()
+    check("LIKE wildcards in search are literal", q["count"] == 0, str(q["count"]))
+
+    expect("DELETE /api/entries/{id}", s.delete(f"{API_URL}/entries/{entry_id}", timeout=TIMEOUT), 200)
+    expect("deleted entry is gone", s.get(f"{API_URL}/entries/{entry_id}", timeout=TIMEOUT), 404)
+    expect("POST restore", s.post(f"{API_URL}/entries/{entry_id}/restore", timeout=TIMEOUT), 200)
+    expect("restored entry is back", s.get(f"{API_URL}/entries/{entry_id}", timeout=TIMEOUT), 200)
+    return entry_id
+
+
+def test_validation(s):
+    section("Input validation")
+    expect("non-UUID entry id", s.get(f"{API_URL}/entries/not-a-uuid", timeout=TIMEOUT), 422)
+    expect("page size over 100", s.get(f"{API_URL}/entries", params={"limit": 1000}, timeout=TIMEOUT), 422)
+    expect("huge offset", s.get(f"{API_URL}/entries", params={"offset": 10**9}, timeout=TIMEOUT), 422)
+    expect("unknown sort column", s.get(f"{API_URL}/entries", params={"sort": "id; drop table entries"}, timeout=TIMEOUT), 422)
+    expect("too short field", s.post(f"{API_URL}/entries", json={**ENTRY, "work": "ab"}, timeout=TIMEOUT), 422)
+    expect("unknown PATCH field", s.patch(f"{API_URL}/entries/{uuid.uuid4()}", json={"user_id": "x"}, timeout=TIMEOUT), 422)
+    big = {**ENTRY, "work": "x" * 20_000}
+    expect("body over 16 KiB", s.post(f"{API_URL}/entries", json=big, timeout=TIMEOUT), 413)
+
+
+def test_csrf(s):
+    section("Cross-site request protection")
+    r = s.post(f"{API_URL}/entries", json=ENTRY, headers={"Origin": "https://evil.example"}, timeout=TIMEOUT)
+    expect("foreign Origin", r, 403)
+    r = s.delete(f"{API_URL}/entries", headers={"Sec-Fetch-Site": "cross-site"}, timeout=TIMEOUT)
+    expect("Sec-Fetch-Site: cross-site", r, 403)
+    r = s.post(f"{API_URL}/entries", data="work=a&struggle=b&intention=c",
+               headers={"Content-Type": "application/x-www-form-urlencoded"}, timeout=TIMEOUT)
+    expect("form-encoded body", r, 415)
+
+
+def test_isolation(s1, entry_id):
+    section("Per-user isolation")
+    s2 = login(*USER2)
+    expect("other user cannot GET", s2.get(f"{API_URL}/entries/{entry_id}", timeout=TIMEOUT), 404)
+    expect("other user cannot PATCH", s2.patch(f"{API_URL}/entries/{entry_id}", json={"work": "hijacked!"}, timeout=TIMEOUT), 404)
+    expect("other user cannot DELETE", s2.delete(f"{API_URL}/entries/{entry_id}", timeout=TIMEOUT), 404)
+    listing = s2.get(f"{API_URL}/entries", params={"limit": 100}, timeout=TIMEOUT).json()
+    check("other user's list does not contain it", all(e["id"] != entry_id for e in listing["entries"]))
+    expect("other user's DELETE all", s2.delete(f"{API_URL}/entries", timeout=TIMEOUT), 200)
+    expect("first user's entry survives it", s1.get(f"{API_URL}/entries/{entry_id}", timeout=TIMEOUT), 200)
+
+    expect("logout", s2.post(f"{API_URL}/auth/logout", timeout=TIMEOUT), 204)
+    expect("session is dead after logout", s2.get(f"{API_URL}/entries", timeout=TIMEOUT), 401)
+
 
 def main():
-    """Run all API tests"""
-    print("\n🚀 Starting LearningSteps API Tests")
-    print(f"Testing API at: {BASE_URL}")
-    print(f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    
-    # Check if API is running
-    if not test_api_health():
-        print("\n❌ Tests aborted: API is not accessible")
-        print("💡 Tip: Run './start.sh' to start the API")
+    print(f"\n🚀 LearningSteps API tests against {BASE_URL}")
+    try:
+        requests.get(f"{BASE_URL}/healthz", timeout=TIMEOUT).raise_for_status()
+    except requests.RequestException as e:
+        print(f"❌ API is not reachable: {e}")
         sys.exit(1)
-    
-    test_web_ui()
 
-    # Test creating an entry
-    created_entry_id = test_create_entry()
-    
-    # Test getting all entries
-    entry_id = test_get_all_entries()
-    
-    # Use the created entry ID or the first available entry ID
-    test_id = created_entry_id or entry_id
-    
-    # Test getting a single entry
-    test_get_single_entry(test_id)
-    
-    # Test updating an entry
-    test_update_entry(test_id)
-    
-    # Test deleting a single entry (creates a new one first to avoid deleting all data)
-    temp_entry_id = test_create_entry()
-    test_delete_single_entry(temp_entry_id)
-    
-    # Uncomment below to test delete all entries (warning: deletes all data!)
-    # print("\n⚠️  Warning: The next test will delete ALL entries from the database")
-    # test_delete_all_entries()
-    
+    test_public_surface()
+    test_login_rules()
+    s1 = login(*USER1)
+    entry_id = test_crud(s1)
+    test_validation(s1)
+    test_csrf(s1)
+    test_isolation(s1, entry_id)
+    s1.delete(f"{API_URL}/entries/{entry_id}", timeout=TIMEOUT)
+
     if FAILURES:
-        print_section(f"❌ {len(FAILURES)} request(s) failed")
+        section(f"❌ {len(FAILURES)} check(s) failed")
         print("\n".join(FAILURES))
         sys.exit(1)
+    section("✅ All checks passed")
 
-    print_section("✅ Tests Complete!")
-    print("💡 Tip: Visit http://localhost:8000/docs to explore the API interactively")
 
 if __name__ == "__main__":
     main()
-
