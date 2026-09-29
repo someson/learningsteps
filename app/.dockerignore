@@ -11,3 +11,6 @@ start.sh
 README.md
 Dockerfile
 .dockerignore
+# Web UI: dependencies are installed and the bundle is built inside the image.
+frontend/node_modules/
+api/static/

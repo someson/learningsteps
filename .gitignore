@@ -189,3 +189,11 @@ backend.hcl
 
 # Rendered Kubernetes manifests (contain environment-specific IDs)
 k8s-manifests/rendered/
+
+# Web UI (app/frontend). `lib/` above is for Python packaging; shadcn keeps
+# its helpers in src/lib, which must be tracked. The build output is produced
+# by `npm run build` locally and by the image's frontend stage.
+!app/frontend/src/lib/
+node_modules/
+app/api/static/
+*.tsbuildinfo

@@ -1,5 +1,5 @@
 # Local run: docker compose up --build
-# Then open http://localhost:8000/docs
+# Then open http://localhost:8000/ (web UI) or http://localhost:8000/docs
 #
 # Uses the same image that CI will build and push to ACR, so what works here
 # is what runs in AKS. Needs app/.env (cp app/.env-sample app/.env).

@@ -12,6 +12,7 @@ from datetime import datetime
 
 # API base URL (override for a deployed instance: BASE_URL=https://<ip> python test_api.py)
 BASE_URL = os.getenv("BASE_URL", "http://localhost:8000")
+API_URL = f"{BASE_URL}/api"
 TIMEOUT = 10  # seconds per request
 
 # Requests that did not return 2xx; a non-empty list makes the script exit 1 (CI gate)
@@ -34,7 +35,7 @@ def print_response(response):
         print(f"Response: {response.text}")
 
 def test_create_entry():
-    """Test POST /entries - Create a new journal entry"""
+    """Test POST /api/entries - Create a new journal entry"""
     print_section("TEST 1: Create a New Entry")
     
     entry_data = {
@@ -43,7 +44,7 @@ def test_create_entry():
         "intention": "Build a complete test suite for the API"
     }
     
-    response = requests.post(f"{BASE_URL}/entries", json=entry_data, timeout=TIMEOUT)
+    response = requests.post(f"{API_URL}/entries", json=entry_data, timeout=TIMEOUT)
     print_response(response)
     
     if response.status_code == 200:
@@ -51,10 +52,10 @@ def test_create_entry():
     return None
 
 def test_get_all_entries():
-    """Test GET /entries - Get all journal entries"""
+    """Test GET /api/entries - Get all journal entries"""
     print_section("TEST 2: Get All Entries")
     
-    response = requests.get(f"{BASE_URL}/entries", timeout=TIMEOUT)
+    response = requests.get(f"{API_URL}/entries", timeout=TIMEOUT)
     print_response(response)
     
     if response.status_code == 200:
@@ -64,18 +65,18 @@ def test_get_all_entries():
     return None
 
 def test_get_single_entry(entry_id):
-    """Test GET /entries/{entry_id} - Get a single entry"""
+    """Test GET /api/entries/{entry_id} - Get a single entry"""
     print_section("TEST 3: Get Single Entry")
     
     if not entry_id:
         print("⚠️  No entry ID available, skipping test")
         return
     
-    response = requests.get(f"{BASE_URL}/entries/{entry_id}", timeout=TIMEOUT)
+    response = requests.get(f"{API_URL}/entries/{entry_id}", timeout=TIMEOUT)
     print_response(response)
 
 def test_update_entry(entry_id):
-    """Test PATCH /entries/{entry_id} - Update an entry"""
+    """Test PATCH /api/entries/{entry_id} - Update an entry"""
     print_section("TEST 4: Update Entry")
     
     if not entry_id:
@@ -86,26 +87,37 @@ def test_update_entry(entry_id):
         "work": "Updated: Completed API testing script"
     }
     
-    response = requests.patch(f"{BASE_URL}/entries/{entry_id}", json=update_data, timeout=TIMEOUT)
+    response = requests.patch(f"{API_URL}/entries/{entry_id}", json=update_data, timeout=TIMEOUT)
     print_response(response)
 
 def test_delete_single_entry(entry_id):
-    """Test DELETE /entries/{entry_id} - Delete a specific entry"""
+    """Test DELETE /api/entries/{entry_id} - Delete a specific entry"""
     print_section("TEST 5: Delete Single Entry")
     
     if not entry_id:
         print("⚠️  No entry ID available, skipping test")
         return
     
-    response = requests.delete(f"{BASE_URL}/entries/{entry_id}", timeout=TIMEOUT)
+    response = requests.delete(f"{API_URL}/entries/{entry_id}", timeout=TIMEOUT)
     print_response(response)
 
 def test_delete_all_entries():
-    """Test DELETE /entries - Delete all entries"""
+    """Test DELETE /api/entries - Delete all entries"""
     print_section("TEST 6: Delete All Entries")
     
-    response = requests.delete(f"{BASE_URL}/entries", timeout=TIMEOUT)
+    response = requests.delete(f"{API_URL}/entries", timeout=TIMEOUT)
     print_response(response)
+
+def test_web_ui():
+    """Test GET / - the web UI is served as HTML"""
+    print_section("Web UI")
+
+    response = requests.get(f"{BASE_URL}/", timeout=TIMEOUT)
+    print(f"Status Code: {response.status_code}")
+    content_type = response.headers.get("content-type", "")
+    print(f"Content-Type: {content_type}")
+    if not response.ok or not content_type.startswith("text/html"):
+        FAILURES.append(f"GET / -> {response.status_code} {content_type}")
 
 def test_api_health():
     """Check if API is accessible"""
@@ -135,6 +147,8 @@ def main():
         print("💡 Tip: Run './start.sh' to start the API")
         sys.exit(1)
     
+    test_web_ui()
+
     # Test creating an entry
     created_entry_id = test_create_entry()
     
