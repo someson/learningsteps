@@ -50,6 +50,10 @@ def expect(name, response, status):
     return response
 
 
+def is_html(response):
+    return response.headers.get("content-type", "").startswith("text/html")
+
+
 def login(username, password):
     s = requests.Session()
     r = s.post(f"{API_URL}/auth/login", json={"username": username, "password": password}, timeout=TIMEOUT)
@@ -76,9 +80,24 @@ def test_public_surface():
            303 if r.json()["entra"] else 404)
 
     # API docs are for signed-in users (unless ENABLE_DOCS=true, which the
-    # stack under test does not set): anonymous gets a plain 404.
-    expect("GET /docs without session", requests.get(f"{BASE_URL}/docs", timeout=TIMEOUT), 404)
-    expect("GET /openapi.json without session", requests.get(f"{BASE_URL}/openapi.json", timeout=TIMEOUT), 404)
+    # stack under test does not set).
+    r = expect("GET /docs without session", requests.get(f"{BASE_URL}/docs", timeout=TIMEOUT), 401)
+    check("… as a sign-in page", is_html(r) and "Sign in required" in r.text)
+    r = expect("GET /openapi.json without session", requests.get(f"{BASE_URL}/openapi.json", timeout=TIMEOUT), 401)
+    check("… as JSON", r.headers.get("content-type", "").startswith("application/json"))
+    r = expect("GET /admin without session", requests.get(f"{BASE_URL}/admin", timeout=TIMEOUT), 401)
+    check("… as a sign-in page", is_html(r))
+
+    section("Error pages")
+    r = expect("unknown page", requests.get(f"{BASE_URL}/no-such-page", timeout=TIMEOUT), 404)
+    check("unknown page is a web page", is_html(r) and "Page not found" in r.text)
+    check("error page has a strict CSP", "default-src 'none'" in r.headers.get("content-security-policy", ""))
+    r = expect("unknown API path", requests.get(f"{API_URL}/no-such-endpoint", timeout=TIMEOUT), 404)
+    check("unknown API path is JSON", r.json() == {"detail": "Not Found"})
+    r = requests.get(f"{BASE_URL}/%3Cscript%3Ealert(1)%3C/script%3E", timeout=TIMEOUT)
+    check("path shown on the 404 page is escaped", r.status_code == 404 and "<script>" not in r.text)
+    r = expect("POST to a page", requests.post(f"{BASE_URL}/", timeout=TIMEOUT), 405)
+    check("… as a web page", is_html(r))
 
     expect("GET /api/entries without session", requests.get(f"{API_URL}/entries", timeout=TIMEOUT), 401)
     expect("GET /api/auth/me without session", requests.get(f"{API_URL}/auth/me", timeout=TIMEOUT), 401)
@@ -186,11 +205,15 @@ def test_admin(s1):
     section("Administration")
     expect("admin API without session", requests.get(f"{API_URL}/admin/users", timeout=TIMEOUT), 401)
     expect("admin API as a regular user", s1.get(f"{API_URL}/admin/users", timeout=TIMEOUT), 403)
+    r = expect("admin page as a regular user", s1.get(f"{BASE_URL}/admin", timeout=TIMEOUT), 403)
+    check("… as an access-denied page", is_html(r) and "Access denied" in r.text)
     check("regular user is not admin", s1.get(f"{API_URL}/auth/me", timeout=TIMEOUT).json().get("is_admin") is False)
 
     admin = login(*ADMIN)
     me = admin.get(f"{API_URL}/auth/me", timeout=TIMEOUT).json()
     check("admin /me says is_admin", me.get("is_admin") is True)
+    r = expect("admin page as admin", admin.get(f"{BASE_URL}/admin", timeout=TIMEOUT), 200)
+    check("… serves the web UI", '<div id="root">' in r.text)
     r = expect("GET /api/admin/users", admin.get(f"{API_URL}/admin/users", timeout=TIMEOUT), 200)
     body = r.json()
     check("user list has users and orphan count", "users" in body and "orphan_entries" in body)

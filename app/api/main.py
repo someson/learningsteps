@@ -1,13 +1,14 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Request
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 from repositories.postgres_repository import PostgresDB
 from routers.admin_router import router as admin_router
-from routers.auth_router import current_user, router as auth_router
+from routers.auth_router import current_user, require_admin, router as auth_router
+import errors
 from routers.journal_router import router as journal_router
 from security import (
     DOCS_ENABLED,
@@ -58,6 +59,9 @@ app.include_router(auth_router, prefix="/api")
 app.include_router(journal_router, prefix="/api")
 app.include_router(admin_router, prefix="/api")
 
+# JSON errors under /api, web pages everywhere else (errors.py).
+errors.install(app)
+
 # Web UI: the Vite build of frontend/ (see app/frontend/vite.config.ts). The
 # image builds it in a separate stage; locally run `npm run build` once.
 STATIC_DIR = Path(__file__).parent / "static"
@@ -84,14 +88,10 @@ app.add_middleware(SecurityHeadersMiddleware, index_html=INDEX_HTML, docs_html=D
 
 async def require_docs_access(request: Request) -> None:
     """Signed-in users only, unless ENABLE_DOCS=true. Anonymous visitors get
-    the same 404 as for any unknown path: the docs' existence is not
-    advertised."""
+    401: a sign-in page for /docs, JSON for /openapi.json."""
     if DOCS_ENABLED:
         return
-    try:
-        await current_user(request)
-    except HTTPException:
-        raise HTTPException(status_code=404, detail="Not Found") from None
+    await current_user(request)
 
 
 @app.get("/openapi.json", include_in_schema=False)
@@ -112,8 +112,7 @@ app.mount(
 )
 
 
-@app.get("/", include_in_schema=False)
-def root():
+def serve_index():
     if not INDEX_HTML.is_file():
         return JSONResponse(
             status_code=503,
@@ -121,6 +120,20 @@ def root():
         )
     # index.html references hashed asset names, so it must always be revalidated.
     return FileResponse(INDEX_HTML, headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/", include_in_schema=False)
+def root():
+    return serve_index()
+
+
+@app.get("/admin", include_in_schema=False)
+async def admin_ui(request: Request):
+    """The administration page of the web UI. The role is checked here too,
+    so a direct visit gets a 401 or 403 page rather than an empty screen;
+    the admin API enforces it independently."""
+    await require_admin(request)
+    return serve_index()
 
 
 # Liveness: the process is up and serving. Deliberately does not touch the

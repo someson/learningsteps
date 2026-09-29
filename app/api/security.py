@@ -271,12 +271,16 @@ class SecurityHeadersMiddleware:
 
         request_id = uuid.uuid4().hex
         token = request_id_var.set(request_id)
+        # Also on request.state, for error pages rendered after this
+        # middleware has returned (unhandled exceptions).
+        scope.setdefault("state", {})["request_id"] = request_id
         path = scope["path"]
 
         async def send_with_headers(message: Message) -> None:
             if message["type"] == "http.response.start":
                 headers = list(message.get("headers", []))
-                headers += [
+                present = {name.lower() for name, _ in headers}
+                added = [
                     (b"x-request-id", request_id.encode()),
                     (b"x-content-type-options", b"nosniff"),
                     (b"x-frame-options", b"DENY"),
@@ -287,14 +291,16 @@ class SecurityHeadersMiddleware:
                 ]
                 if path.startswith("/api/"):
                     # Journal data is private: never cached by browsers or proxies.
-                    headers += [
+                    added += [
                         (b"cache-control", b"no-store"),
                         (b"content-security-policy", b"default-src 'none'; frame-ancestors 'none'"),
                     ]
-                elif path == "/" or path.startswith("/assets/"):
-                    headers.append((b"content-security-policy", self.ui_csp))
+                elif path in ("/", "/admin") or path.startswith("/assets/"):
+                    added.append((b"content-security-policy", self.ui_csp))
                 elif path == "/docs":
-                    headers.append((b"content-security-policy", self.docs_csp))
+                    added.append((b"content-security-policy", self.docs_csp))
+                # A response that set its own value (error pages) keeps it.
+                headers += [(name, value) for name, value in added if name not in present]
                 message["headers"] = headers
             await send(message)
 
