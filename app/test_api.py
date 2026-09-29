@@ -72,6 +72,11 @@ def test_public_surface():
                         allow_redirects=False, timeout=TIMEOUT),
            303 if r.json()["entra"] else 404)
 
+    # API docs are for signed-in users (unless ENABLE_DOCS=true, which the
+    # stack under test does not set): anonymous gets a plain 404.
+    expect("GET /docs without session", requests.get(f"{BASE_URL}/docs", timeout=TIMEOUT), 404)
+    expect("GET /openapi.json without session", requests.get(f"{BASE_URL}/openapi.json", timeout=TIMEOUT), 404)
+
     expect("GET /api/entries without session", requests.get(f"{API_URL}/entries", timeout=TIMEOUT), 401)
     expect("GET /api/auth/me without session", requests.get(f"{API_URL}/auth/me", timeout=TIMEOUT), 401)
     r = requests.get(f"{API_URL}/entries", cookies={"session": "forged", "__Host-session": "forged"}, timeout=TIMEOUT)
@@ -93,6 +98,21 @@ def test_login_rules():
         for _ in range(6)
     ]
     check("6th failed login is throttled (429)", statuses[-1] == 429, str(statuses))
+
+
+def test_docs(s):
+    section("API docs (signed in)")
+    r = expect("GET /docs", s.get(f"{BASE_URL}/docs", timeout=TIMEOUT), 200)
+    csp = r.headers.get("content-security-policy", "")
+    script_src = next((d for d in csp.split(";") if d.strip().startswith("script-src")), "")
+    check("docs CSP allows inline scripts only by hash",
+          "'sha256-" in script_src and "unsafe-inline" not in script_src)
+    check("Swagger UI is served from this origin", "/assets/swagger/swagger-ui-bundle.js" in r.text
+          and "cdn." not in r.text)
+    expect("Swagger UI bundle", s.get(f"{BASE_URL}/assets/swagger/swagger-ui-bundle.js", timeout=TIMEOUT), 200)
+    r = expect("GET /openapi.json", s.get(f"{BASE_URL}/openapi.json", timeout=TIMEOUT), 200)
+    check("schema lists the entries API", "/api/entries" in r.json().get("paths", {}))
+    check("/me points to the docs", s.get(f"{API_URL}/auth/me", timeout=TIMEOUT).json().get("docs_url") == "/docs")
 
 
 def test_crud(s):
@@ -170,6 +190,7 @@ def main():
     test_public_surface()
     test_login_rules()
     s1 = login(*USER1)
+    test_docs(s1)
     entry_id = test_crud(s1)
     test_validation(s1)
     test_csrf(s1)

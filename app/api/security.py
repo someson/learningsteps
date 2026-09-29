@@ -37,8 +37,9 @@ SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_HOURS", "12")) * 3600
 # AKS turns it off so Microsoft Entra ID is the only way in.
 LOCAL_LOGIN = env_flag("LOCAL_LOGIN", True)
 
-# /docs, /redoc and /openapi.json map the whole API for an attacker; off
-# unless explicitly enabled (the local docker compose stack enables it).
+# /docs and /openapi.json map the whole API, so they are shown to signed-in
+# users only. ENABLE_DOCS=true opens them to anonymous visitors too (the local
+# docker compose stack does; AKS does not).
 DOCS_ENABLED = env_flag("ENABLE_DOCS", False)
 
 # Entries are three 256-character fields; 16 KiB is ample and caps the work a
@@ -229,14 +230,12 @@ class CSRFMiddleware:
         await self.app(scope, receive, send)
 
 
-def _inline_script_hashes(index_html: Path) -> list[str]:
-    """CSP hashes of the inline scripts in the built index.html (the
-    pre-paint theme script), so the policy needs no 'unsafe-inline'."""
+def _inline_script_hashes(html: str) -> list[str]:
+    """CSP hashes of a page's inline scripts, so its policy needs no
+    'unsafe-inline' (the pre-paint theme script in index.html, the Swagger UI
+    bootstrap on /docs)."""
     import re
 
-    if not index_html.is_file():
-        return []
-    html = index_html.read_text()
     scripts = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", html, flags=re.S)
     return [f"'sha256-{_b64(hashlib.sha256(s.encode()).digest())}'" for s in scripts]
 
@@ -248,12 +247,18 @@ class SecurityHeadersMiddleware:
     docker compose stack and cannot drift from the app that needs them.
     """
 
-    def __init__(self, app: ASGIApp, index_html: Path) -> None:
+    def __init__(self, app: ASGIApp, index_html: Path, docs_html: str) -> None:
         self.app = app
-        script_src = " ".join(["'self'", *_inline_script_hashes(index_html)])
-        # style-src needs 'unsafe-inline': Radix and Sonner position popovers
-        # and toasts with inline styles. Scripts, the real XSS vector, do not.
-        self.ui_csp = (
+        ui_html = index_html.read_text() if index_html.is_file() else ""
+        self.ui_csp = self._csp(ui_html)
+        self.docs_csp = self._csp(docs_html)
+
+    @staticmethod
+    def _csp(html: str) -> bytes:
+        script_src = " ".join(["'self'", *_inline_script_hashes(html)])
+        # style-src needs 'unsafe-inline': Radix, Sonner and Swagger UI set
+        # inline styles. Scripts, the real XSS vector, do not.
+        return (
             f"default-src 'self'; script-src {script_src}; style-src 'self' 'unsafe-inline'; "
             "img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; "
             "base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
@@ -288,8 +293,8 @@ class SecurityHeadersMiddleware:
                     ]
                 elif path == "/" or path.startswith("/assets/"):
                     headers.append((b"content-security-policy", self.ui_csp))
-                # /docs is left without a CSP: Swagger UI loads from a CDN
-                # with inline scripts. It is disabled unless ENABLE_DOCS=true.
+                elif path == "/docs":
+                    headers.append((b"content-security-policy", self.docs_csp))
                 message["headers"] = headers
             await send(message)
 
