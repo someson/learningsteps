@@ -10,6 +10,8 @@ import {
   ChevronsRightIcon,
   EyeIcon,
   FileTextIcon,
+  Loader2Icon,
+  LogOutIcon,
   MoonIcon,
   MoreHorizontalIcon,
   PencilIcon,
@@ -18,6 +20,7 @@ import {
   SearchIcon,
   SunIcon,
   Trash2Icon,
+  UserIcon,
   XIcon,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -25,6 +28,7 @@ import { toast } from "sonner"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { EntryDetailsDialog } from "@/components/entry-details-dialog"
 import { EntryFormDialog } from "@/components/entry-form-dialog"
+import { LoginPage } from "@/components/login-page"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -32,6 +36,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
@@ -41,7 +46,16 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Toaster } from "@/components/ui/sonner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-import { ApiError, FIELDS, api, formatDate, type Entry } from "@/lib/api"
+import {
+  ApiError,
+  FIELDS,
+  UNAUTHORIZED_EVENT,
+  api,
+  formatDate,
+  type Entry,
+  type EntryPage,
+  type User,
+} from "@/lib/api"
 import { useTheme } from "@/lib/theme"
 import { PAGE_SIZES, useViewState, type SortKey } from "@/lib/url-state"
 import { cn } from "@/lib/utils"
@@ -52,40 +66,185 @@ const COLUMNS: { key: SortKey; label: string; className?: string }[] = [
   { key: "updated_at", label: "Updated", className: "w-40" },
 ]
 
+const SEARCH_DEBOUNCE_MS = 300
+
+// Session gate: GET /api/auth/me decides between the login screen and the
+// journal. Any 401 later (expired or revoked session) returns here.
 export default function App() {
   const { theme, toggle } = useTheme()
-  const [view, setView] = useViewState()
+  // undefined while checking the session, null when signed out.
+  const [user, setUser] = useState<User | null | undefined>(undefined)
+  const [expired, setExpired] = useState(false)
 
-  const [entries, setEntries] = useState<Entry[]>([])
-  const [loading, setLoading] = useState(true)
-  const [loadError, setLoadError] = useState<string | null>(null)
-
-  const [formOpen, setFormOpen] = useState(false)
-  const [editing, setEditing] = useState<Entry | null>(null)
-  const [deleting, setDeleting] = useState<Entry | null>(null)
-  const [deleteAllOpen, setDeleteAllOpen] = useState(false)
-  const [detailsVersion, setDetailsVersion] = useState(0)
-  const searchRef = useRef<HTMLInputElement>(null)
-
-  // GET /api/entries
-  const load = useCallback(async (quiet = false) => {
-    if (!quiet) setLoading(true)
-    try {
-      const { entries } = await api.list()
-      setEntries(entries)
-      setLoadError(null)
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Could not load entries"
-      setLoadError(message)
-      if (quiet) toast.error(message)
-    } finally {
-      setLoading(false)
-    }
+  useEffect(() => {
+    api.me().then(setUser, () => setUser(null))
   }, [])
 
   useEffect(() => {
-    load()
-  }, [load])
+    const onUnauthorized = () => {
+      setExpired(true)
+      setUser(null)
+    }
+    window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized)
+    return () => window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized)
+  }, [])
+
+  async function logout() {
+    try {
+      await api.logout()
+    } finally {
+      setExpired(false)
+      setUser(null)
+    }
+  }
+
+  return (
+    <TooltipProvider>
+      {user === undefined ? (
+        <div className="grid min-h-svh place-items-center">
+          <Loader2Icon className="text-muted-foreground size-6 animate-spin" aria-label="Loading" />
+        </div>
+      ) : user === null ? (
+        <LoginPage
+          expired={expired}
+          onLogin={(u) => {
+            setExpired(false)
+            setUser(u)
+          }}
+        />
+      ) : (
+        <Journal user={user} theme={theme} onToggleTheme={toggle} onLogout={logout} />
+      )}
+      <Toaster theme={theme} position="bottom-right" />
+    </TooltipProvider>
+  )
+}
+
+function Journal({
+  user,
+  theme,
+  onToggleTheme,
+  onLogout,
+}: {
+  user: User
+  theme: "light" | "dark"
+  onToggleTheme: () => void
+  onLogout: () => void
+}) {
+  const [view, setView] = useViewState()
+
+  const [data, setData] = useState<EntryPage | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [reloadKey, setReloadKey] = useState(0)
+  const reload = useCallback(() => setReloadKey((k) => k + 1), [])
+
+  const [search, setSearch] = useState(view.q)
+  const [formOpen, setFormOpen] = useState(false)
+  const [editing, setEditing] = useState<Entry | null>(null)
+  const [deleting, setDeleting] = useState<Entry | null>(null)
+  // Keeps the text in the confirm dialog while its close animation runs.
+  const lastDeleting = useRef<Entry | null>(null)
+  if (deleting) lastDeleting.current = deleting
+  const [deleteAllOpen, setDeleteAllOpen] = useState(false)
+  const [detailsVersion, setDetailsVersion] = useState(0)
+  const searchRef = useRef<HTMLInputElement>(null)
+  // Set when prev/next in the details dialog crosses a page boundary: once
+  // the adjacent page has loaded, its first or last entry is opened.
+  const pendingOpen = useRef<"first" | "last" | null>(null)
+
+  // The search box is local state; the URL (and the request) follow it after
+  // a pause in typing, so each keystroke does not hit the API.
+  useEffect(() => {
+    if (search === view.q) return
+    const t = setTimeout(() => setView({ q: search, page: 1 }, { replace: true }), SEARCH_DEBOUNCE_MS)
+    return () => clearTimeout(t)
+  }, [search, view.q, setView])
+
+  // Back/forward can change q under us.
+  useEffect(() => {
+    setSearch(view.q)
+  }, [view.q])
+
+  // GET /api/entries?limit&offset&q&sort&dir — one page, server-side.
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    api
+      .list({ limit: view.size, offset: (view.page - 1) * view.size, q: view.q.trim(), sort: view.sort, dir: view.dir })
+      .then((page) => {
+        if (cancelled) return
+        setData(page)
+        setLoadError(null)
+        const pages = Math.max(1, Math.ceil(page.count / view.size))
+        if (view.page > pages) setView({ page: pages }, { replace: true })
+      })
+      .catch((err) => {
+        if (cancelled || (err instanceof ApiError && err.status === 401)) return
+        setLoadError(err instanceof Error ? err.message : "Could not load entries")
+      })
+      .finally(() => !cancelled && setLoading(false))
+    return () => {
+      cancelled = true
+    }
+  }, [view.q, view.page, view.size, view.sort, view.dir, reloadKey, setView])
+
+  const rows = useMemo(() => data?.entries ?? [], [data])
+  const count = data?.count ?? 0
+  const pageCount = Math.max(1, Math.ceil(count / view.size))
+  const page = Math.min(view.page, pageCount)
+  const offset = (page - 1) * view.size
+  const from = count ? offset + 1 : 0
+  const to = Math.min(offset + rows.length, count)
+
+  const openEntry = useCallback(
+    (id: string | null, opts: { replace?: boolean } = {}) => setView({ entry: id }, opts),
+    [setView]
+  )
+
+  useEffect(() => {
+    if (!pendingOpen.current || loading || !rows.length) return
+    const target = pendingOpen.current === "first" ? rows[0] : rows[rows.length - 1]
+    pendingOpen.current = null
+    openEntry(target.id, { replace: true })
+  }, [rows, loading, openEntry])
+
+  const position = useMemo(() => {
+    if (!view.entry) return undefined
+    const i = rows.findIndex((e) => e.id === view.entry)
+    if (i === -1) return undefined
+    const index = offset + i
+    return {
+      index,
+      total: count,
+      hasPrev: index > 0,
+      hasNext: index < count - 1,
+      onPrev: () => {
+        if (i > 0) openEntry(rows[i - 1].id, { replace: true })
+        else {
+          pendingOpen.current = "last"
+          setView({ page: page - 1 }, { replace: true })
+        }
+      },
+      onNext: () => {
+        if (i < rows.length - 1) openEntry(rows[i + 1].id, { replace: true })
+        else {
+          pendingOpen.current = "first"
+          setView({ page: page + 1 }, { replace: true })
+        }
+      },
+    }
+  }, [view.entry, rows, offset, count, page, openEntry, setView])
+
+  const openCreate = useCallback(() => {
+    setEditing(null)
+    setFormOpen(true)
+  }, [])
+
+  function openEdit(entry: Entry) {
+    setEditing(entry)
+    setFormOpen(true)
+  }
 
   // "/" focuses search, "n" opens the create form.
   useEffect(() => {
@@ -102,118 +261,53 @@ export default function App() {
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [])
+  }, [openCreate])
 
-  const filtered = useMemo(() => {
-    const q = view.q.trim().toLowerCase()
-    const list = q
-      ? entries.filter((e) => FIELDS.some(({ key }) => e[key].toLowerCase().includes(q)) || e.id.startsWith(q))
-      : entries.slice()
-    const sign = view.dir === "asc" ? 1 : -1
-    list.sort((a, b) => {
-      const av = a[view.sort]
-      const bv = b[view.sort]
-      const cmp = view.sort.endsWith("_at")
-        ? new Date(av).getTime() - new Date(bv).getTime()
-        : av.localeCompare(bv, undefined, { sensitivity: "base" })
-      return cmp * sign || a.id.localeCompare(b.id)
-    })
-    return list
-  }, [entries, view.q, view.sort, view.dir])
-
-  const pageCount = Math.max(1, Math.ceil(filtered.length / view.size))
-  const page = Math.min(view.page, pageCount)
-  const pageRows = filtered.slice((page - 1) * view.size, page * view.size)
-  const from = filtered.length ? (page - 1) * view.size + 1 : 0
-  const to = Math.min(page * view.size, filtered.length)
-
-  const position = useMemo(() => {
-    if (!view.entry) return undefined
-    const index = filtered.findIndex((e) => e.id === view.entry)
-    return {
-      index,
-      total: filtered.length,
-      prevId: index > 0 ? filtered[index - 1].id : undefined,
-      nextId: index >= 0 && index < filtered.length - 1 ? filtered[index + 1].id : undefined,
-    }
-  }, [filtered, view.entry])
-
-  const latest = useMemo(
-    () =>
-      entries.reduce<Entry | null>(
-        (acc, e) => (!acc || new Date(e.created_at) > new Date(acc.created_at) ? e : acc),
-        null
-      ),
-    [entries]
-  )
-
-  function openCreate() {
-    setEditing(null)
-    setFormOpen(true)
-  }
-
-  function openEdit(entry: Entry) {
-    setEditing(entry)
-    setFormOpen(true)
-  }
-
-  const openEntry = useCallback(
-    (id: string | null) => {
-      // Keep the table on the page that holds the entry being viewed.
-      if (id) {
-        const index = filtered.findIndex((e) => e.id === id)
-        const target = index >= 0 ? Math.floor(index / view.size) + 1 : view.page
-        setView({ entry: id, page: target }, { replace: !!view.entry })
-      } else {
-        setView({ entry: null })
-      }
-    },
-    [filtered, view.size, view.page, view.entry, setView]
-  )
-
-  const dropMissing = useCallback((id: string) => {
-    setEntries((list) => list.filter((e) => e.id !== id))
-  }, [])
-
-  function onSaved(saved: Entry) {
-    setEntries((list) => {
-      const i = list.findIndex((e) => e.id === saved.id)
-      if (i === -1) return [saved, ...list]
-      const next = list.slice()
-      next[i] = saved
-      return next
-    })
+  function onSaved() {
     setDetailsVersion((v) => v + 1)
     if (!editing) {
       // Show the new entry: newest first, first page, no filter hiding it.
+      setSearch("")
       setView({ q: "", sort: "created_at", dir: "desc", page: 1 })
     }
+    reload()
   }
 
-  // DELETE /api/entries/{id}
+  // DELETE /api/entries/{id} — soft, so the toast can offer an undo.
   async function deleteOne(entry: Entry) {
     try {
       await api.remove(entry.id)
-      toast.success("Entry deleted")
     } catch (err) {
-      // 404: someone else already deleted it — the goal is reached.
+      // 404: already deleted elsewhere; the goal is reached.
       if (!(err instanceof ApiError && err.status === 404)) {
         toast.error(err instanceof Error ? err.message : "Could not delete the entry")
         throw err
       }
-      toast.info("Entry was already deleted")
     }
-    dropMissing(entry.id)
-    if (view.entry === entry.id) setView({ entry: null }, { replace: true })
+    if (view.entry === entry.id) openEntry(null, { replace: true })
+    reload()
+    toast.success("Entry deleted", {
+      action: {
+        label: "Undo",
+        onClick: () =>
+          api.restore(entry.id).then(
+            () => {
+              toast.success("Entry restored")
+              reload()
+            },
+            (err) => toast.error(err instanceof Error ? err.message : "Could not restore the entry")
+          ),
+      },
+    })
   }
 
-  // DELETE /api/entries
+  // DELETE /api/entries — only the signed-in user's entries.
   async function deleteAll() {
     try {
-      await api.removeAll()
-      setEntries([])
+      const { deleted } = await api.removeAll()
       setView({ page: 1, entry: null })
-      toast.success("All entries deleted")
+      reload()
+      toast.success(`${deleted} ${deleted === 1 ? "entry" : "entries"} deleted`)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not delete entries")
       throw err
@@ -225,8 +319,11 @@ export default function App() {
     else setView({ sort: key, dir: key.endsWith("_at") ? "desc" : "asc", page: 1 })
   }
 
+  const firstLoad = data === null && loading
+  const total = data?.total ?? 0
+
   return (
-    <TooltipProvider>
+    <>
       <div className="flex min-h-svh flex-col">
         <header className="bg-background/80 sticky top-0 z-40 border-b backdrop-blur">
           <div className="mx-auto flex h-14 max-w-7xl items-center gap-3 px-4 sm:px-6">
@@ -246,19 +343,38 @@ export default function App() {
               <div className="text-muted-foreground hidden text-xs sm:block">Learning journal</div>
             </div>
             <nav className="ml-auto flex items-center gap-1">
-              <Button variant="ghost" size="sm" asChild>
-                <a href="/docs" target="_blank" rel="noreferrer">
-                  <BookOpenIcon /> <span className="hidden sm:inline">API docs</span>
-                </a>
-              </Button>
+              {user.docs_url && (
+                <Button variant="ghost" size="sm" asChild>
+                  <a href={user.docs_url} target="_blank" rel="noreferrer">
+                    <BookOpenIcon /> <span className="hidden sm:inline">API docs</span>
+                  </a>
+                </Button>
+              )}
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button variant="ghost" size="icon" onClick={toggle} aria-label="Toggle theme">
+                  <Button variant="ghost" size="icon" onClick={onToggleTheme} aria-label="Toggle theme">
                     {theme === "dark" ? <SunIcon /> : <MoonIcon />}
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>{theme === "dark" ? "Light mode" : "Dark mode"}</TooltipContent>
               </Tooltip>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="ml-1" aria-label="Account">
+                    <UserIcon /> <span className="hidden max-w-32 truncate sm:inline">{user.username}</span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuLabel className="text-muted-foreground text-xs font-normal">
+                    Signed in as
+                    <div className="text-foreground truncate text-sm font-medium">{user.username}</div>
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={onLogout}>
+                    <LogOutIcon /> Sign out
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </nav>
           </div>
         </header>
@@ -277,12 +393,12 @@ export default function App() {
           </div>
 
           <div className="grid gap-4 sm:grid-cols-3">
-            <Stat title="Total entries" value={loading ? null : String(entries.length)} />
+            <Stat title="Total entries" value={firstLoad ? null : String(total)} />
+            <Stat title={view.q ? "Matching search" : "Shown"} value={firstLoad ? null : String(count)} />
             <Stat
-              title={view.q ? "Matching search" : "Shown"}
-              value={loading ? null : String(filtered.length)}
+              title="Latest entry"
+              value={firstLoad ? null : data?.latest_created_at ? formatDate(data.latest_created_at) : "—"}
             />
-            <Stat title="Latest entry" value={loading ? null : latest ? formatDate(latest.created_at) : "—"} />
           </div>
 
           <Card className="gap-0 py-0">
@@ -294,16 +410,20 @@ export default function App() {
                   <SearchIcon className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2" />
                   <Input
                     ref={searchRef}
-                    value={view.q}
-                    onChange={(e) => setView({ q: e.target.value, page: 1 }, { replace: true })}
+                    value={search}
+                    maxLength={100}
+                    onChange={(e) => setSearch(e.target.value)}
                     placeholder="Search entries…"
                     className="pr-8 pl-8"
                     aria-label="Search entries"
                   />
-                  {view.q ? (
+                  {search ? (
                     <button
                       className="text-muted-foreground hover:text-foreground absolute top-1/2 right-2 -translate-y-1/2"
-                      onClick={() => setView({ q: "", page: 1 })}
+                      onClick={() => {
+                        setSearch("")
+                        setView({ q: "", page: 1 })
+                      }}
                       aria-label="Clear search"
                     >
                       <XIcon className="size-4" />
@@ -318,23 +438,19 @@ export default function App() {
               <CardAction className="flex gap-2">
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button variant="outline" size="icon" onClick={() => load(true)} aria-label="Refresh">
+                    <Button variant="outline" size="icon" onClick={reload} aria-label="Refresh">
                       <RefreshCwIcon className={cn(loading && "animate-spin")} />
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>Refresh</TooltipContent>
                 </Tooltip>
-                <Button
-                  variant="outline"
-                  disabled={!entries.length}
-                  onClick={() => setDeleteAllOpen(true)}
-                >
+                <Button variant="outline" disabled={!total} onClick={() => setDeleteAllOpen(true)}>
                   <Trash2Icon /> <span className="hidden sm:inline">Delete all</span>
                 </Button>
               </CardAction>
             </CardHeader>
 
-            <CardContent className="px-0">
+            <CardContent className={cn("px-0 transition-opacity", loading && !firstLoad && "opacity-60")}>
               <Table>
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
@@ -362,7 +478,7 @@ export default function App() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {loading ? (
+                  {firstLoad ? (
                     Array.from({ length: 5 }, (_, i) => (
                       <TableRow key={i}>
                         {COLUMNS.map((c) => (
@@ -379,17 +495,25 @@ export default function App() {
                     <EmptyRow>
                       <p className="font-medium">Could not load entries</p>
                       <p className="text-muted-foreground text-sm">{loadError}</p>
-                      <Button variant="outline" size="sm" className="mt-3" onClick={() => load()}>
+                      <Button variant="outline" size="sm" className="mt-3" onClick={reload}>
                         <RefreshCwIcon /> Try again
                       </Button>
                     </EmptyRow>
-                  ) : pageRows.length === 0 ? (
+                  ) : rows.length === 0 ? (
                     <EmptyRow>
                       <FileTextIcon className="text-muted-foreground mb-2 size-8" />
                       {view.q ? (
                         <>
                           <p className="font-medium">No entries match “{view.q}”</p>
-                          <Button variant="outline" size="sm" className="mt-3" onClick={() => setView({ q: "" })}>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="mt-3"
+                            onClick={() => {
+                              setSearch("")
+                              setView({ q: "" })
+                            }}
+                          >
                             Clear search
                           </Button>
                         </>
@@ -404,7 +528,7 @@ export default function App() {
                       )}
                     </EmptyRow>
                   ) : (
-                    pageRows.map((entry) => (
+                    rows.map((entry) => (
                       <TableRow
                         key={entry.id}
                         data-state={view.entry === entry.id ? "selected" : undefined}
@@ -446,8 +570,8 @@ export default function App() {
 
             <div className="flex flex-col-reverse items-center justify-between gap-3 border-t px-6 py-3 sm:flex-row">
               <p className="text-muted-foreground text-sm tabular-nums">
-                {filtered.length ? `${from}–${to} of ${filtered.length}` : "0 entries"}
-                {view.q && entries.length !== filtered.length && ` (filtered from ${entries.length})`}
+                {count ? `${from}–${to} of ${count}` : "0 entries"}
+                {view.q && total !== count && ` (filtered from ${total})`}
               </p>
               <div className="flex items-center gap-4">
                 <div className="flex items-center gap-2">
@@ -496,10 +620,16 @@ export default function App() {
         </main>
 
         <footer className="text-muted-foreground mx-auto w-full max-w-7xl px-4 pb-8 text-xs sm:px-6">
-          JSON API under <code className="font-mono">/api</code> · interactive reference at{" "}
-          <a href="/docs" className="hover:text-foreground underline underline-offset-4">
-            /docs
-          </a>
+          JSON API under <code className="font-mono">/api</code>
+          {user.docs_url && (
+            <>
+              {" "}
+              · interactive reference at{" "}
+              <a href={user.docs_url} className="hover:text-foreground underline underline-offset-4">
+                {user.docs_url}
+              </a>
+            </>
+          )}
         </footer>
       </div>
 
@@ -509,8 +639,11 @@ export default function App() {
         hidden={formOpen || !!deleting}
         position={position}
         version={detailsVersion}
-        onNavigate={openEntry}
-        onMissing={dropMissing}
+        onClose={() => openEntry(null)}
+        onMissing={() => {
+          openEntry(null, { replace: true })
+          reload()
+        }}
         onEdit={openEdit}
         onDelete={setDeleting}
       />
@@ -523,8 +656,8 @@ export default function App() {
         title="Delete this entry?"
         description={
           <>
-            <span className="text-foreground line-clamp-2 font-medium">“{deleting?.work}”</span>
-            <span className="mt-2 block">This permanently removes the entry. It cannot be undone.</span>
+            <span className="text-foreground line-clamp-2 font-medium">“{lastDeleting.current?.work}”</span>
+            <span className="mt-2 block">You can undo this right after deleting.</span>
           </>
         }
         confirmLabel="Delete"
@@ -534,15 +667,13 @@ export default function App() {
       <ConfirmDialog
         open={deleteAllOpen}
         onOpenChange={setDeleteAllOpen}
-        title={`Delete all ${entries.length} entries?`}
-        description="Every entry in the journal is permanently removed, not only the ones on this page or matching the search. This cannot be undone."
+        title={`Delete all ${total} of your entries?`}
+        description="Every entry in your journal is removed, not only the ones on this page or matching the search. Other users' journals are not affected."
         confirmLabel="Delete all"
         confirmWord="delete"
         onConfirm={deleteAll}
       />
-
-      <Toaster theme={theme} position="bottom-right" />
-    </TooltipProvider>
+    </>
   )
 }
 
