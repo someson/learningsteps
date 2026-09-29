@@ -80,6 +80,36 @@ data:
 
         reverse_proxy learningsteps-api:8000
 
+        # When the API cannot answer at all (no ready pod, rollout, crash),
+        # the error comes from Caddy itself. Same split as the app: JSON for
+        # /api, a web page for people. Only 502-504: other Caddy errors
+        # (429 rate limit, 413 body size) keep their plain responses.
+        handle_errors 502 503 504 {
+            header Cache-Control "no-store"
+            header Retry-After "30"
+            @api path /api/*
+            handle @api {
+                header Content-Type "application/json"
+                respond `{"detail":"Service temporarily unavailable"}` {err.status_code}
+            }
+            handle {
+                header Content-Type "text/html; charset=utf-8"
+                header Content-Security-Policy "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+                respond <<HTML
+                    <!doctype html>
+                    <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+                    <meta name="robots" content="noindex"><title>Temporarily unavailable · LearningSteps</title>
+                    <style>*{box-sizing:border-box}body{margin:0;min-height:100svh;display:flex;align-items:center;justify-content:center;padding:16px;background:#fafafa;color:#0a0a0a;font:16px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}main{width:100%;max-width:420px;text-align:center}.brand{display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:24px;font-weight:600}.logo{width:36px;height:36px;border-radius:9px;background:#171717;display:grid;place-items:center}.card{background:#fff;border:1px solid #e5e5e5;border-radius:14px;padding:32px 24px;box-shadow:0 1px 2px rgba(0,0,0,.05)}.code{font-size:56px;font-weight:700;letter-spacing:-.04em;line-height:1;margin:0 0 12px;color:#0a0a0a}h1{font-size:20px;margin:0 0 8px}p{margin:0;color:#737373;font-size:14px}.btn{display:inline-flex;align-items:center;height:36px;padding:0 16px;margin-top:24px;border-radius:8px;background:#171717;color:#fafafa;font-size:14px;font-weight:500;text-decoration:none}</style>
+                    </head><body><main>
+                    <div class="brand"><span class="logo"><svg viewBox="0 0 32 32" width="20" height="20" fill="none" aria-hidden="true"><path d="M6 24h5v-5h5v-5h5V9h5" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></span>LearningSteps</div>
+                    <div class="card"><p class="code">{err.status_code}</p><h1>Temporarily unavailable</h1>
+                    <p>LearningSteps is restarting or under maintenance. Your entries are safe. Please try again in a minute.</p>
+                    <a class="btn" href="">Try again</a></div>
+                    </main></body></html>
+                    HTML {err.status_code}
+            }
+        }
+
         encode gzip
 
         header {

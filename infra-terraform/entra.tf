@@ -32,6 +32,20 @@ locals {
   entra_redirect_uri = "https://${azurerm_public_ip.ingress.ip_address}/api/auth/entra/callback"
 }
 
+# Stable ID for the "Admin" app role (Entra requires a GUID per role).
+resource "random_uuid" "admin_role" {}
+
+locals {
+  # Who gets the Admin role: the listed object IDs, or else whoever runs
+  # Terraform. Everyone else in the allowed tenant(s) signs in as a regular
+  # user; the role only adds the administration page (app/api/routers/admin_router.py).
+  entra_admin_object_ids = (
+    length(var.entra_admin_object_ids) > 0
+    ? var.entra_admin_object_ids
+    : [data.azuread_client_config.current.object_id]
+  )
+}
+
 resource "azuread_application" "web" {
   display_name     = "${local.name}-web"
   sign_in_audience = var.entra_sign_in_audience
@@ -50,6 +64,16 @@ resource "azuread_application" "web" {
 
   api {
     requested_access_token_version = 2
+  }
+
+  # Assigned users get "roles": ["Admin"] in their ID token.
+  app_role {
+    id                   = random_uuid.admin_role.result
+    value                = "Admin"
+    display_name         = "Administrator"
+    description          = "Can see all users of LearningSteps and block or unblock them."
+    allowed_member_types = ["User"]
+    enabled              = true
   }
 
   # Sign-in only: openid + profile, nothing else from Microsoft Graph. These
@@ -85,4 +109,12 @@ resource "azuread_application_federated_identity_credential" "web_workload" {
   audiences      = ["api://AzureADTokenExchange"]
   issuer         = azurerm_kubernetes_cluster.main.oidc_issuer_url
   subject        = "system:serviceaccount:${var.k8s_namespace}:${var.k8s_service_account}"
+}
+
+resource "azuread_app_role_assignment" "admins" {
+  for_each = toset(local.entra_admin_object_ids)
+
+  app_role_id         = azuread_application.web.app_role_ids["Admin"]
+  principal_object_id = each.value
+  resource_object_id  = azuread_service_principal.web.object_id
 }

@@ -73,6 +73,11 @@ jobs:
           done
           echo "TEST_USER=ci-user-1" >> "$GITHUB_ENV"
           echo "TEST_USER2=ci-user-2" >> "$GITHUB_ENV"
+          pw="$(openssl rand -hex 16)"
+          echo "::add-mask::$pw"
+          echo "TEST_ADMIN_PASSWORD=$pw" >> "$GITHUB_ENV"
+          echo "TEST_ADMIN=ci-admin" >> "$GITHUB_ENV"
+          echo "$pw" | docker compose exec -T api python create_user.py ci-admin --admin
 
       - name: API tests
         run: python app/test_api.py
@@ -292,12 +297,13 @@ jobs:
 
       # No -k: the Let's Encrypt certificate must be valid. / is the web UI.
       # /api/entries with a bogus session must be 401, not 5xx: the lookup
-      # goes through Caddy, the API and the database. /docs must stay off.
+      # goes through Caddy, the API and the database. /docs needs a session;
+      # an unknown page gets the 404 page, not a 5xx.
       - name: Smoke test
         run: |
           curl -fsS --retry 10 --retry-delay 6 --retry-all-errors \
             -o /dev/null -w "/ %{http_code}\n" "https://$INGRESS_IP/"
-          for check in "/api/entries 401" "/docs 404"; do
+          for check in "/api/entries 401" "/docs 401" "/no-such-page 404"; do
             set -- $check
             code="$(curl -sS --retry 10 --retry-delay 6 --retry-all-errors -o /dev/null -w '%{http_code}' \
               -H 'Cookie: __Host-session=smoke-test' "https://$INGRESS_IP$1")"

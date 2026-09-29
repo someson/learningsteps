@@ -64,6 +64,8 @@ ALLOW_ANY_TENANT = ALLOWED_TENANTS == {"*"}
 ENABLED = bool(TENANT_ID and CLIENT_ID and REDIRECT_URI)
 
 SCOPES = "openid profile"
+# Value of the app role that makes a user an administrator of this app.
+ADMIN_ROLE = "Admin"
 CLOCK_SKEW_SECONDS = 300
 TRANSACTION_TTL_SECONDS = 600
 
@@ -215,7 +217,11 @@ def validate_claims(claims: Dict[str, Any], nonce: str, now: float | None = None
     if not oid:
         raise EntraError("no oid claim")
     upn = str(claims.get("preferred_username", ""))[:256]
+    # App roles assigned to the user in Entra (infra-terraform/entra.tf).
+    roles = claims.get("roles")
+    is_admin = isinstance(roles, list) and ADMIN_ROLE in roles
     return {
+        "is_admin": is_admin,
         "tenant_id": tid,
         "object_id": oid.lower(),
         "upn": upn.lower() or None,

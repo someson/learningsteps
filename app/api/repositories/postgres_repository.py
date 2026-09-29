@@ -185,16 +185,25 @@ class PostgresDB(DatabaseInterface):
 
     async def get_user_by_username(self, username: str) -> Dict[str, Any] | None:
         row = await self.pool.fetchrow(
-            "SELECT id, username, password_hash FROM users WHERE username = $1", username
+            "SELECT id, username, password_hash, is_admin, disabled_at FROM users WHERE username = $1", username
         )
         return dict(row) if row else None
 
-    async def create_user(self, username: str, password_hash: str) -> Dict[str, Any]:
+    async def create_user(self, username: str, password_hash: str, is_admin: bool = False) -> Dict[str, Any]:
         row = await self.pool.fetchrow(
-            "INSERT INTO users (id, username, password_hash) VALUES ($1, $2, $3) RETURNING id, username",
-            uuid.uuid4(), username, password_hash,
+            """
+            INSERT INTO users (id, username, password_hash, is_admin) VALUES ($1, $2, $3, $4)
+            RETURNING id, username
+            """,
+            uuid.uuid4(), username, password_hash, is_admin,
         )
         return dict(row)
+
+    async def set_admin(self, user_id: uuid.UUID, is_admin: bool) -> None:
+        await self.pool.execute("UPDATE users SET is_admin = $2 WHERE id = $1", user_id, is_admin)
+
+    async def mark_login(self, user_id: uuid.UUID) -> None:
+        await self.pool.execute("UPDATE users SET last_login_at = now() WHERE id = $1", user_id)
 
     async def set_password(self, user_id: uuid.UUID, password_hash: str) -> None:
         # A new password ends every existing session of that user.
@@ -211,14 +220,15 @@ class PostgresDB(DatabaseInterface):
         sign-in; refreshes the UPN and display name every time."""
         row = await self.pool.fetchrow(
             """
-            INSERT INTO users (id, entra_tenant_id, entra_object_id, upn, display_name)
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO users (id, entra_tenant_id, entra_object_id, upn, display_name, is_admin, last_login_at)
+            VALUES ($1, $2, $3, $4, $5, $6, now())
             ON CONFLICT (entra_tenant_id, entra_object_id)
-            DO UPDATE SET upn = EXCLUDED.upn, display_name = EXCLUDED.display_name
-            RETURNING id, display_name AS username, (xmax = 0) AS created
+            DO UPDATE SET upn = EXCLUDED.upn, display_name = EXCLUDED.display_name,
+                          is_admin = EXCLUDED.is_admin, last_login_at = now()
+            RETURNING id, display_name AS username, is_admin, disabled_at, (xmax = 0) AS created
             """,
             uuid.uuid4(), uuid.UUID(identity["tenant_id"]), uuid.UUID(identity["object_id"]),
-            identity["upn"], identity["display_name"],
+            identity["upn"], identity["display_name"], identity["is_admin"],
         )
         return dict(row)
 
@@ -240,9 +250,9 @@ class PostgresDB(DatabaseInterface):
     async def get_session_user(self, token_hash: bytes) -> Dict[str, Any] | None:
         row = await self.pool.fetchrow(
             """
-            SELECT u.id, coalesce(u.display_name, u.username) AS username
+            SELECT u.id, coalesce(u.display_name, u.username) AS username, u.is_admin
             FROM sessions s JOIN users u ON u.id = s.user_id
-            WHERE s.token_hash = $1 AND s.expires_at > now()
+            WHERE s.token_hash = $1 AND s.expires_at > now() AND u.disabled_at IS NULL
             """,
             token_hash,
         )
@@ -250,6 +260,38 @@ class PostgresDB(DatabaseInterface):
 
     async def delete_session(self, token_hash: bytes) -> None:
         await self.pool.execute("DELETE FROM sessions WHERE token_hash = $1", token_hash)
+
+    # --- Administration -----------------------------------------------------
+
+    async def list_users(self) -> List[Dict[str, Any]]:
+        rows = await self.pool.fetch(
+            """
+            SELECT u.id, coalesce(u.display_name, u.username) AS name, coalesce(u.upn, u.username) AS login,
+                   CASE WHEN u.entra_object_id IS NULL THEN 'local' ELSE 'entra' END AS kind,
+                   u.is_admin, u.disabled_at, u.created_at, u.last_login_at,
+                   count(e.id) FILTER (WHERE e.deleted_at IS NULL) AS entries
+            FROM users u LEFT JOIN entries e ON e.user_id = u.id
+            GROUP BY u.id
+            ORDER BY u.created_at
+            """
+        )
+        return [dict(r) for r in rows]
+
+    async def count_orphan_entries(self) -> int:
+        return await self.pool.fetchval(
+            "SELECT count(*) FROM entries WHERE user_id IS NULL AND deleted_at IS NULL"
+        )
+
+    async def set_disabled(self, user_id: uuid.UUID, disabled: bool) -> bool:
+        """Blocks or unblocks a user; blocking also ends every session."""
+        async with self.pool.acquire() as conn, conn.transaction():
+            result = await conn.execute(
+                "UPDATE users SET disabled_at = CASE WHEN $2 THEN now() ELSE NULL END WHERE id = $1",
+                user_id, disabled,
+            )
+            if disabled:
+                await conn.execute("DELETE FROM sessions WHERE user_id = $1", user_id)
+        return result != "UPDATE 0"
 
     # --- Login throttling ---------------------------------------------------
 

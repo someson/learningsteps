@@ -11,6 +11,9 @@ where it would end up in shell history and the process list.
 
   --reset           set a new password for an existing user; ends their sessions
   --adopt-orphans   give this user the entries created before accounts existed
+  --admin           make (or keep) this local account an administrator; with
+                    --reset, omitting it removes the role. Entra users get the
+                    role from Entra instead (the "Admin" app role)
 """
 import argparse
 import asyncio
@@ -29,6 +32,7 @@ async def main() -> int:
     parser.add_argument("username")
     parser.add_argument("--reset", action="store_true")
     parser.add_argument("--adopt-orphans", action="store_true")
+    parser.add_argument("--admin", action="store_true")
     args = parser.parse_args()
 
     username = args.username.strip().lower()
@@ -58,15 +62,16 @@ async def main() -> int:
 
         if existing:
             await db.set_password(existing["id"], password_hash)
+            await db.set_admin(existing["id"], args.admin)
             user_id = existing["id"]
             print(f"Password reset for {username}; existing sessions ended")
         else:
             try:
-                user_id = (await db.create_user(username, password_hash))["id"]
+                user_id = (await db.create_user(username, password_hash, is_admin=args.admin))["id"]
             except asyncpg.UniqueViolationError:
                 print(f"User {username} exists", file=sys.stderr)
                 return 1
-            print(f"Created user {username}")
+            print(f"Created {'administrator' if args.admin else 'user'} {username}")
 
         if args.adopt_orphans:
             count = await db.adopt_orphan_entries(user_id)

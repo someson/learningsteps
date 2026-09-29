@@ -3,9 +3,10 @@
 End-to-end checks for the LearningSteps API: CRUD, authentication, per-user
 isolation and the HTTP hardening. Runs against a live stack.
 
-Needs two existing accounts (create them with api/create_user.py):
-  TEST_USER / TEST_PASSWORD     default: alice / alice-password-1
-  TEST_USER2 / TEST_PASSWORD2   default: bob / bob-password-123
+Needs three existing accounts (create them with api/create_user.py):
+  TEST_USER / TEST_PASSWORD             default: alice / alice-password-1
+  TEST_USER2 / TEST_PASSWORD2           default: bob / bob-password-123
+  TEST_ADMIN / TEST_ADMIN_PASSWORD      default: admin / admin-password-1 (--admin)
 
   BASE_URL=http://localhost:8000 python test_api.py
 """
@@ -22,6 +23,8 @@ TIMEOUT = 10  # seconds per request
 
 USER1 = (os.getenv("TEST_USER", "alice"), os.getenv("TEST_PASSWORD", "alice-password-1"))
 USER2 = (os.getenv("TEST_USER2", "bob"), os.getenv("TEST_PASSWORD2", "bob-password-123"))
+# A local account created with create_user.py --admin.
+ADMIN = (os.getenv("TEST_ADMIN", "admin"), os.getenv("TEST_ADMIN_PASSWORD", "admin-password-1"))
 
 FAILURES = []
 
@@ -45,6 +48,10 @@ def check(name, condition, detail=""):
 def expect(name, response, status):
     check(f"{name} -> {status}", response.status_code == status, f"got {response.status_code}: {response.text[:200]}")
     return response
+
+
+def is_html(response):
+    return response.headers.get("content-type", "").startswith("text/html")
 
 
 def login(username, password):
@@ -73,9 +80,24 @@ def test_public_surface():
            303 if r.json()["entra"] else 404)
 
     # API docs are for signed-in users (unless ENABLE_DOCS=true, which the
-    # stack under test does not set): anonymous gets a plain 404.
-    expect("GET /docs without session", requests.get(f"{BASE_URL}/docs", timeout=TIMEOUT), 404)
-    expect("GET /openapi.json without session", requests.get(f"{BASE_URL}/openapi.json", timeout=TIMEOUT), 404)
+    # stack under test does not set).
+    r = expect("GET /docs without session", requests.get(f"{BASE_URL}/docs", timeout=TIMEOUT), 401)
+    check("… as a sign-in page", is_html(r) and "Sign in required" in r.text)
+    r = expect("GET /openapi.json without session", requests.get(f"{BASE_URL}/openapi.json", timeout=TIMEOUT), 401)
+    check("… as JSON", r.headers.get("content-type", "").startswith("application/json"))
+    r = expect("GET /admin without session", requests.get(f"{BASE_URL}/admin", timeout=TIMEOUT), 401)
+    check("… as a sign-in page", is_html(r))
+
+    section("Error pages")
+    r = expect("unknown page", requests.get(f"{BASE_URL}/no-such-page", timeout=TIMEOUT), 404)
+    check("unknown page is a web page", is_html(r) and "Page not found" in r.text)
+    check("error page has a strict CSP", "default-src 'none'" in r.headers.get("content-security-policy", ""))
+    r = expect("unknown API path", requests.get(f"{API_URL}/no-such-endpoint", timeout=TIMEOUT), 404)
+    check("unknown API path is JSON", r.json() == {"detail": "Not Found"})
+    r = requests.get(f"{BASE_URL}/%3Cscript%3Ealert(1)%3C/script%3E", timeout=TIMEOUT)
+    check("path shown on the 404 page is escaped", r.status_code == 404 and "<script>" not in r.text)
+    r = expect("POST to a page", requests.post(f"{BASE_URL}/", timeout=TIMEOUT), 405)
+    check("… as a web page", is_html(r))
 
     expect("GET /api/entries without session", requests.get(f"{API_URL}/entries", timeout=TIMEOUT), 401)
     expect("GET /api/auth/me without session", requests.get(f"{API_URL}/auth/me", timeout=TIMEOUT), 401)
@@ -179,6 +201,38 @@ def test_isolation(s1, entry_id):
     expect("session is dead after logout", s2.get(f"{API_URL}/entries", timeout=TIMEOUT), 401)
 
 
+def test_admin(s1):
+    section("Administration")
+    expect("admin API without session", requests.get(f"{API_URL}/admin/users", timeout=TIMEOUT), 401)
+    expect("admin API as a regular user", s1.get(f"{API_URL}/admin/users", timeout=TIMEOUT), 403)
+    r = expect("admin page as a regular user", s1.get(f"{BASE_URL}/admin", timeout=TIMEOUT), 403)
+    check("… as an access-denied page", is_html(r) and "Access denied" in r.text)
+    check("regular user is not admin", s1.get(f"{API_URL}/auth/me", timeout=TIMEOUT).json().get("is_admin") is False)
+
+    admin = login(*ADMIN)
+    me = admin.get(f"{API_URL}/auth/me", timeout=TIMEOUT).json()
+    check("admin /me says is_admin", me.get("is_admin") is True)
+    r = expect("admin page as admin", admin.get(f"{BASE_URL}/admin", timeout=TIMEOUT), 200)
+    check("… serves the web UI", '<div id="root">' in r.text)
+    r = expect("GET /api/admin/users", admin.get(f"{API_URL}/admin/users", timeout=TIMEOUT), 200)
+    body = r.json()
+    check("user list has users and orphan count", "users" in body and "orphan_entries" in body)
+    check("user list has no journal contents", all(set(u) >= {"name", "entries"} and "work" not in u for u in body["users"]))
+    expect("admin cannot block itself", admin.post(f"{API_URL}/admin/users/{me['id']}/block", timeout=TIMEOUT), 400)
+    expect("block unknown user", admin.post(f"{API_URL}/admin/users/{uuid.uuid4()}/block", timeout=TIMEOUT), 404)
+
+    s2 = login(*USER2)
+    victim = s2.get(f"{API_URL}/auth/me", timeout=TIMEOUT).json()["id"]
+    expect("regular user cannot block", s1.post(f"{API_URL}/admin/users/{victim}/block", timeout=TIMEOUT), 403)
+    expect("admin blocks user", admin.post(f"{API_URL}/admin/users/{victim}/block", timeout=TIMEOUT), 200)
+    expect("blocked user's session ends at once", s2.get(f"{API_URL}/entries", timeout=TIMEOUT), 401)
+    r = requests.post(f"{API_URL}/auth/login", json={"username": USER2[0], "password": USER2[1]}, timeout=TIMEOUT)
+    expect("blocked user cannot sign in", r, 403)
+    expect("admin unblocks user", admin.post(f"{API_URL}/admin/users/{victim}/unblock", timeout=TIMEOUT), 200)
+    login(*USER2)
+    expect("adopt ownerless entries", admin.post(f"{API_URL}/admin/orphans/adopt", timeout=TIMEOUT), 200)
+
+
 def main():
     print(f"\n🚀 LearningSteps API tests against {BASE_URL}")
     try:
@@ -195,6 +249,7 @@ def main():
     test_validation(s1)
     test_csrf(s1)
     test_isolation(s1, entry_id)
+    test_admin(s1)
     s1.delete(f"{API_URL}/entries/{entry_id}", timeout=TIMEOUT)
 
     if FAILURES:
