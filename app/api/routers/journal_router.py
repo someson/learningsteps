@@ -10,7 +10,7 @@ from security import client_ip
 from services.entry_service import EntryService
 
 # Every route requires a signed-in user and only sees that user's entries.
-router = APIRouter(dependencies=[Depends(current_user)])
+router = APIRouter(tags=["entries"], dependencies=[Depends(current_user)])
 logger = logging.getLogger("journal")
 audit = logging.getLogger("audit")
 

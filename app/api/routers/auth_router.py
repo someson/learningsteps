@@ -50,7 +50,8 @@ async def current_user(request: Request) -> Dict[str, Any]:
 
 
 def _user_out(request: Request, user: Dict[str, Any]) -> Dict[str, Any]:
-    return {"username": user["username"], "docs_url": request.app.docs_url}
+    # Every signed-in user may open the API docs (see main.py).
+    return {"username": user["username"], "docs_url": "/docs"}
 
 
 # Short-lived cookie carrying state, nonce and the PKCE verifier across the

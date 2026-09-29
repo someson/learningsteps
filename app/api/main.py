@@ -1,11 +1,12 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
-from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 from repositories.postgres_repository import PostgresDB
-from routers.auth_router import router as auth_router
+from routers.auth_router import current_user, router as auth_router
 from routers.journal_router import router as journal_router
 from security import (
     DOCS_ENABLED,
@@ -46,9 +47,10 @@ app = FastAPI(
     title="LearningSteps API",
     description="A simple learning journal API for tracking daily work, struggles, and intentions",
     lifespan=lifespan,
-    docs_url="/docs" if DOCS_ENABLED else None,
+    # Served by the routes below, which check the session first.
+    docs_url=None,
     redoc_url=None,
-    openapi_url="/openapi.json" if DOCS_ENABLED else None,
+    openapi_url=None,
 )
 # JSON API. Everything under /api is data; the web UI and docs live outside it.
 app.include_router(auth_router, prefix="/api")
@@ -64,7 +66,42 @@ INDEX_HTML = STATIC_DIR / "index.html"
 # before any route or database work.
 app.add_middleware(CSRFMiddleware)
 app.add_middleware(BodySizeLimitMiddleware)
-app.add_middleware(SecurityHeadersMiddleware, index_html=INDEX_HTML)
+
+# Swagger UI from this origin (copied into static/ by the frontend build),
+# not a CDN: no third-party script on a page that carries the session.
+DOCS_HTML = get_swagger_ui_html(
+    openapi_url="/openapi.json",
+    title="LearningSteps API",
+    swagger_js_url="/assets/swagger/swagger-ui-bundle.js",
+    swagger_css_url="/assets/swagger/swagger-ui.css",
+    swagger_favicon_url="/assets/swagger/favicon-32x32.png",
+).body.decode()
+
+app.add_middleware(SecurityHeadersMiddleware, index_html=INDEX_HTML, docs_html=DOCS_HTML)
+
+
+async def require_docs_access(request: Request) -> None:
+    """Signed-in users only, unless ENABLE_DOCS=true. Anonymous visitors get
+    the same 404 as for any unknown path: the docs' existence is not
+    advertised."""
+    if DOCS_ENABLED:
+        return
+    try:
+        await current_user(request)
+    except HTTPException:
+        raise HTTPException(status_code=404, detail="Not Found") from None
+
+
+@app.get("/openapi.json", include_in_schema=False)
+async def openapi_schema(request: Request):
+    await require_docs_access(request)
+    return JSONResponse(app.openapi())
+
+
+@app.get("/docs", include_in_schema=False)
+async def swagger_ui(request: Request):
+    await require_docs_access(request)
+    return HTMLResponse(DOCS_HTML)
 
 app.mount(
     "/assets",
