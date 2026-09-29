@@ -129,6 +129,22 @@ variable "github_repository" {
   }
 }
 
+# GitHub signs OIDC tokens with an immutable subject that embeds numeric IDs
+# (repo:owner@<owner_id>/name@<repo_id>:...), so a renamed or re-registered
+# repo with the same name cannot match. Read the exact prefix with:
+#   gh api repos/<owner>/<name>/actions/oidc/customization/sub --jq .sub_claim_prefix
+# null = legacy name-based subject (repo:owner/name), for repos that opted out.
+variable "github_oidc_subject_prefix" {
+  type        = string
+  default     = null
+  description = "OIDC sub claim prefix, e.g. 'repo:owner@123/name@456'. null falls back to 'repo:<github_repository>'."
+
+  validation {
+    condition     = var.github_oidc_subject_prefix == null || can(regex("^repo:[^/]+/[^/:]+$", var.github_oidc_subject_prefix))
+    error_message = "github_oidc_subject_prefix must look like 'repo:owner@123/name@456'."
+  }
+}
+
 variable "github_environment" {
   type        = string
   default     = "production"

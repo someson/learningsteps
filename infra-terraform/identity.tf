@@ -95,7 +95,7 @@ resource "azurerm_federated_identity_credential" "github_environment" {
   user_assigned_identity_id = azurerm_user_assigned_identity.github.id
   audience                  = ["api://AzureADTokenExchange"]
   issuer                    = "https://token.actions.githubusercontent.com"
-  subject                   = "repo:${var.github_repository}:environment:${var.github_environment}"
+  subject                   = "${coalesce(var.github_oidc_subject_prefix, "repo:${var.github_repository}")}:environment:${var.github_environment}"
 }
 
 # No credential for pull_request events. This identity can push images and

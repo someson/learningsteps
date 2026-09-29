@@ -2,6 +2,8 @@
 
 github_repository = "someson/learningsteps"
 github_environment = "production"
+# gh api repos/<owner>/<name>/actions/oidc/customization/sub --jq .sub_claim_prefix
+github_oidc_subject_prefix = "repo:someson@3097223/learningsteps@1390992389"
 
 # Your public IP as /32. Find it with: curl -s https://api.ipify.org
 # Key Vault, the AKS API server and the state storage accept only these.
