@@ -33,6 +33,10 @@ COOKIE_SECURE = env_flag("COOKIE_SECURE", True)
 SESSION_COOKIE = "__Host-session" if COOKIE_SECURE else "session"
 SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_HOURS", "12")) * 3600
 
+# Username/password sign-in. On by default for local development and CI;
+# AKS turns it off so Microsoft Entra ID is the only way in.
+PASSWORD_LOGIN = env_flag("PASSWORD_LOGIN", True)
+
 # /docs, /redoc and /openapi.json map the whole API for an attacker; off
 # unless explicitly enabled (the local docker compose stack enables it).
 DOCS_ENABLED = env_flag("ENABLE_DOCS", False)

@@ -163,6 +163,9 @@ jobs:
           INGRESS_RG: example-rg
           DB_SUBNET_CIDR: 10.20.4.0/24
           ACME_EMAIL: ci@example.com
+          ENTRA_CLIENT_ID: 00000000-0000-0000-0000-000000000004
+          ENTRA_TENANT: 00000000-0000-0000-0000-000000000003
+          ENTRA_ALLOWED_TENANTS: 00000000-0000-0000-0000-000000000003
         run: k8s-manifests/render.sh
 
       - name: Trivy — Kubernetes manifests
@@ -216,6 +219,10 @@ jobs:
       INGRESS_RG: ${{ vars.INGRESS_RG }}
       DB_SUBNET_CIDR: ${{ vars.DB_SUBNET_CIDR }}
       ACME_EMAIL: ${{ vars.ACME_EMAIL }}
+      # Sign-in with Microsoft (terraform output github_repository_variables).
+      ENTRA_CLIENT_ID: ${{ vars.ENTRA_CLIENT_ID }}
+      ENTRA_TENANT: ${{ vars.ENTRA_TENANT }}
+      ENTRA_ALLOWED_TENANTS: ${{ vars.ENTRA_ALLOWED_TENANTS }}
       IMAGE_TAG: ${{ github.sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

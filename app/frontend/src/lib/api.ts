@@ -92,7 +92,10 @@ export type EntryPage = {
   offset: number
 }
 
+export type AuthConfig = { password: boolean; entra: boolean }
+
 export const api = {
+  authConfig: () => request<AuthConfig>("GET", "/auth/config"),
   me: () => request<User>("GET", "/auth/me"),
   login: (username: string, password: string) => request<User>("POST", "/auth/login", { username, password }),
   logout: () => request<void>("POST", "/auth/logout"),

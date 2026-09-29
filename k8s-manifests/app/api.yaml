@@ -14,6 +14,14 @@ data:
   FORWARDED_ALLOW_IPS: "*"
   SESSION_TTL_HOURS: "12"
   # COOKIE_SECURE defaults to true and ENABLE_DOCS to false: not set here.
+
+  # Sign-in with Microsoft Entra ID only (infra-terraform/entra.tf). Users
+  # are created on first sign-in; no password accounts in the cluster.
+  PASSWORD_LOGIN: "false"
+  ENTRA_CLIENT_ID: "${ENTRA_CLIENT_ID}"
+  ENTRA_TENANT_ID: "${ENTRA_TENANT}"
+  ENTRA_ALLOWED_TENANTS: "${ENTRA_ALLOWED_TENANTS}"
+  ENTRA_REDIRECT_URI: "https://${INGRESS_IP}/api/auth/entra/callback"
 ---
 apiVersion: apps/v1
 kind: Deployment

@@ -206,6 +206,29 @@ class PostgresDB(DatabaseInterface):
         result = await self.pool.execute("UPDATE entries SET user_id = $1 WHERE user_id IS NULL", user_id)
         return int(result.split()[-1])
 
+    async def upsert_entra_user(self, identity: Dict[str, Any]) -> Dict[str, Any]:
+        """Finds the Entra user by (tenant, object ID), creating it on first
+        sign-in; refreshes the UPN and display name every time."""
+        row = await self.pool.fetchrow(
+            """
+            INSERT INTO users (id, entra_tenant_id, entra_object_id, upn, display_name)
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (entra_tenant_id, entra_object_id)
+            DO UPDATE SET upn = EXCLUDED.upn, display_name = EXCLUDED.display_name
+            RETURNING id, display_name AS username, (xmax = 0) AS created
+            """,
+            uuid.uuid4(), uuid.UUID(identity["tenant_id"]), uuid.UUID(identity["object_id"]),
+            identity["upn"], identity["display_name"],
+        )
+        return dict(row)
+
+    async def find_user(self, name: str) -> Dict[str, Any] | None:
+        """By local username or Entra UPN (for operator tools)."""
+        row = await self.pool.fetchrow(
+            "SELECT id, coalesce(upn, username) AS name FROM users WHERE username = $1 OR upn = $1", name
+        )
+        return dict(row) if row else None
+
     async def create_session(self, user_id: uuid.UUID, token_hash: bytes, ttl_seconds: int) -> None:
         async with self.pool.acquire() as conn:
             await conn.execute("DELETE FROM sessions WHERE expires_at < now()")
@@ -217,7 +240,8 @@ class PostgresDB(DatabaseInterface):
     async def get_session_user(self, token_hash: bytes) -> Dict[str, Any] | None:
         row = await self.pool.fetchrow(
             """
-            SELECT u.id, u.username FROM sessions s JOIN users u ON u.id = s.user_id
+            SELECT u.id, coalesce(u.display_name, u.username) AS username
+            FROM sessions s JOIN users u ON u.id = s.user_id
             WHERE s.token_hash = $1 AND s.expires_at > now()
             """,
             token_hash,

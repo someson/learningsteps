@@ -18,6 +18,17 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
 );
 
+-- Microsoft Entra ID accounts (api/entra.py): no username or password, keyed
+-- by the immutable tenant + object ID. upn/display_name are refreshed on
+-- every sign-in and used for display and lookup only.
+ALTER TABLE users ALTER COLUMN username DROP NOT NULL;
+ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS entra_tenant_id UUID;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS entra_object_id UUID;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS upn VARCHAR(256);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name VARCHAR(256);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_entra ON users(entra_tenant_id, entra_object_id);
+
 -- Server-side sessions. Only a SHA-256 of the cookie token is stored, so a
 -- database leak does not hand out live sessions.
 CREATE TABLE IF NOT EXISTS sessions (

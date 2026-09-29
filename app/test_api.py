@@ -65,6 +65,13 @@ def test_public_surface():
     check("nosniff", r.headers.get("x-content-type-options") == "nosniff")
     check("X-Request-ID present", bool(r.headers.get("x-request-id")))
 
+    r = expect("GET /api/auth/config", requests.get(f"{API_URL}/auth/config", timeout=TIMEOUT), 200)
+    check("config lists sign-in methods", set(r.json()) == {"password", "entra"})
+    expect("Entra callback without a sign-in in progress",
+           requests.get(f"{API_URL}/auth/entra/callback", params={"code": "x", "state": "y"},
+                        allow_redirects=False, timeout=TIMEOUT),
+           303 if r.json()["entra"] else 404)
+
     expect("GET /api/entries without session", requests.get(f"{API_URL}/entries", timeout=TIMEOUT), 401)
     expect("GET /api/auth/me without session", requests.get(f"{API_URL}/auth/me", timeout=TIMEOUT), 401)
     r = requests.get(f"{API_URL}/entries", cookies={"session": "forged", "__Host-session": "forged"}, timeout=TIMEOUT)

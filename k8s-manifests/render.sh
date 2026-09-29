@@ -31,6 +31,9 @@ fi
 : "${INGRESS_PIP_NAME:=$(tf ingress_public_ip_name)}"
 : "${INGRESS_RG:=$(tf ingress_resource_group)}"
 : "${DB_SUBNET_CIDR:=$(tf db_subnet_cidr)}"
+: "${ENTRA_CLIENT_ID:=$(tf entra_client_id)}"
+: "${ENTRA_TENANT:=$(tf entra_authority_tenant)}"
+: "${ENTRA_ALLOWED_TENANTS:=$(tf entra_allowed_tenants)}"
 
 API_IMAGE="${ACR_LOGIN_SERVER}/learningsteps-api:${IMAGE_TAG}"
 CADDY_IMAGE="${ACR_LOGIN_SERVER}/learningsteps-caddy:${CADDY_IMAGE_TAG}"
@@ -38,11 +41,12 @@ CADDY_IMAGE="${ACR_LOGIN_SERVER}/learningsteps-caddy:${CADDY_IMAGE_TAG}"
 CADDYFILE_SHA="$(printf '%s\n' "$(cat app/caddy.yaml)" "$INGRESS_IP" "$ACME_EMAIL" | shasum -a 256 | cut -c1-16)"
 
 export IMAGE_TAG API_IMAGE CADDY_IMAGE CADDYFILE_SHA WORKLOAD_CLIENT_ID MIGRATOR_CLIENT_ID \
-       TENANT_ID KEY_VAULT_NAME INGRESS_IP INGRESS_PIP_NAME INGRESS_RG DB_SUBNET_CIDR ACME_EMAIL
+       TENANT_ID KEY_VAULT_NAME INGRESS_IP INGRESS_PIP_NAME INGRESS_RG DB_SUBNET_CIDR ACME_EMAIL \
+       ENTRA_CLIENT_ID ENTRA_TENANT ENTRA_ALLOWED_TENANTS
 
 # Explicit list: only these placeholders are replaced, anything else that
 # looks like $VAR is left alone.
-VARS='${IMAGE_TAG} ${API_IMAGE} ${CADDY_IMAGE} ${CADDYFILE_SHA} ${WORKLOAD_CLIENT_ID} ${MIGRATOR_CLIENT_ID} ${TENANT_ID} ${KEY_VAULT_NAME} ${INGRESS_IP} ${INGRESS_PIP_NAME} ${INGRESS_RG} ${DB_SUBNET_CIDR} ${ACME_EMAIL}'
+VARS='${IMAGE_TAG} ${API_IMAGE} ${CADDY_IMAGE} ${CADDYFILE_SHA} ${WORKLOAD_CLIENT_ID} ${MIGRATOR_CLIENT_ID} ${TENANT_ID} ${KEY_VAULT_NAME} ${INGRESS_IP} ${INGRESS_PIP_NAME} ${INGRESS_RG} ${DB_SUBNET_CIDR} ${ACME_EMAIL} ${ENTRA_CLIENT_ID} ${ENTRA_TENANT} ${ENTRA_ALLOWED_TENANTS}'
 
 rm -rf rendered
 for dir in cluster app; do
