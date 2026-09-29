@@ -17,7 +17,7 @@ data:
 
   # Sign-in with Microsoft Entra ID only (infra-terraform/entra.tf). Users
   # are created on first sign-in; no password accounts in the cluster.
-  PASSWORD_LOGIN: "false"
+  LOCAL_LOGIN: "false"
   ENTRA_CLIENT_ID: "${ENTRA_CLIENT_ID}"
   ENTRA_TENANT_ID: "${ENTRA_TENANT}"
   ENTRA_ALLOWED_TENANTS: "${ENTRA_ALLOWED_TENANTS}"

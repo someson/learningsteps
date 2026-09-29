@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 import entra
 from security import (
     COOKIE_SECURE,
-    PASSWORD_LOGIN,
+    LOCAL_LOGIN,
     SESSION_COOKIE,
     SESSION_TTL_SECONDS,
     client_ip,
@@ -74,7 +74,7 @@ def _start_session(response: Response, token: str) -> None:
 @router.get("/config")
 async def auth_config():
     """Which sign-in methods the login screen should offer. Public."""
-    return {"password": PASSWORD_LOGIN, "entra": entra.ENABLED}
+    return {"password": LOCAL_LOGIN, "entra": entra.ENABLED}
 
 
 @router.get("/entra/login", include_in_schema=False)
@@ -140,7 +140,7 @@ async def entra_callback(request: Request):
 
 @router.post("/login")
 async def login(body: LoginRequest, request: Request, response: Response):
-    if not PASSWORD_LOGIN:
+    if not LOCAL_LOGIN:
         raise HTTPException(status_code=404, detail="Password sign-in is disabled")
     db = get_db(request)
     username = body.username.strip().lower()
