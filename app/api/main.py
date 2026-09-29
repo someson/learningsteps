@@ -1,6 +1,8 @@
 from contextlib import asynccontextmanager
+from pathlib import Path
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 from repositories.postgres_repository import PostgresDB
 from routers.journal_router import router as journal_router
@@ -35,12 +37,30 @@ app = FastAPI(
     description="A simple learning journal API for tracking daily work, struggles, and intentions",
     lifespan=lifespan,
 )
-app.include_router(journal_router)
+# JSON API. Everything under /api is data; the web UI and docs live outside it.
+app.include_router(journal_router, prefix="/api")
+
+# Web UI: the Vite build of frontend/ (see app/frontend/vite.config.ts). The
+# image builds it in a separate stage; locally run `npm run build` once.
+STATIC_DIR = Path(__file__).parent / "static"
+INDEX_HTML = STATIC_DIR / "index.html"
+
+app.mount(
+    "/assets",
+    StaticFiles(directory=STATIC_DIR / "assets", check_dir=False),
+    name="assets",
+)
 
 
 @app.get("/", include_in_schema=False)
 def root():
-    return RedirectResponse(url="/docs")
+    if not INDEX_HTML.is_file():
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "Web UI is not built. Run `npm ci && npm run build` in app/frontend."},
+        )
+    # index.html references hashed asset names, so it must always be revalidated.
+    return FileResponse(INDEX_HTML, headers={"Cache-Control": "no-cache"})
 
 
 # Liveness: the process is up and serving. Deliberately does not touch the

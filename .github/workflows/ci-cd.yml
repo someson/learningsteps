@@ -171,7 +171,7 @@ jobs:
     # repo:<owner>/<repo>:environment:production.
     environment:
       name: production
-      url: https://${{ vars.INGRESS_IP }}/docs
+      url: https://${{ vars.INGRESS_IP }}/
     permissions:
       contents: read
       id-token: write # OIDC token for azure/login — this job only
@@ -258,11 +258,11 @@ jobs:
           jq -r .logs <<<"$out"
           exit "$(jq -r .exitCode <<<"$out")"
 
-      # No -k: the Let's Encrypt certificate must be valid. /entries goes
-      # through Caddy, the API and the database.
+      # No -k: the Let's Encrypt certificate must be valid. / is the web UI;
+      # /api/entries goes through Caddy, the API and the database.
       - name: Smoke test
         run: |
-          for path in /docs /entries; do
+          for path in / /docs /api/entries; do
             curl -fsS --retry 10 --retry-delay 6 --retry-all-errors \
               -o /dev/null -w "$path %{http_code}\n" "https://$INGRESS_IP$path"
           done

@@ -8,6 +8,17 @@
 #
 # builder: latest-dev = same Python plus shell and pip, used only to build.
 
+# --- Web UI stage: build app/frontend into static files ---------------------
+# Node is used only here; the runtime image ships plain HTML/CSS/JS.
+FROM node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS frontend
+
+WORKDIR /src/frontend
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY frontend/ ./
+# vite.config.ts writes the bundle to ../api/static, i.e. /src/api/static.
+RUN npm run build
+
 # --- Build stage: dependencies into an isolated venv ------------------------
 FROM cgr.dev/chainguard/python:latest-dev@sha256:87729167739190d9309588120a8ac0ffbf2eb95dd895abb9bada6bb9ecbf5a04 AS builder
 
@@ -43,6 +54,7 @@ COPY --from=builder /app/venv /app/venv
 # process cannot modify what it runs. Works with readOnlyRootFilesystem.
 # database_setup.sql is read by api/migrate.py (the db-migrate Job).
 COPY api/ /app/api/
+COPY --from=frontend /src/api/static /app/api/static
 COPY database_setup.sql /app/database_setup.sql
 
 WORKDIR /app/api
