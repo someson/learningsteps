@@ -31,6 +31,9 @@ data:
             # would send clients to a port that is not there.
             protocols h1 h2
         }
+
+        # rate_limit is a plugin (caddy/main.go) and has no default position.
+        order rate_limit before reverse_proxy
     }
 
     ${INGRESS_IP} {
@@ -44,6 +47,36 @@ data:
         # Probe and metrics endpoints are for the cluster, not the internet.
         @internal path /healthz /readyz /metrics
         respond @internal 404
+
+        # Oversized bodies are cut off here, before they reach the API (which
+        # enforces its own 16 KiB limit as well).
+        request_body {
+            max_size 64KB
+        }
+
+        # Per-client limits, keyed by the real client IP (the Service keeps
+        # it: externalTrafficPolicy Local). Over the limit: 429 + Retry-After.
+        # One Caddy replica, so in-memory counters see all traffic. The API
+        # also throttles failed logins per account, across its replicas.
+        rate_limit {
+            zone login {
+                match {
+                    method POST
+                    path /api/auth/login
+                }
+                key {remote_host}
+                events 10
+                window 1m
+            }
+            zone api {
+                match {
+                    path /api/*
+                }
+                key {remote_host}
+                events 300
+                window 1m
+            }
+        }
 
         reverse_proxy learningsteps-api:8000
 

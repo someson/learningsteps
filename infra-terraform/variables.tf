@@ -205,3 +205,33 @@ variable "tags" {
   }
   description = "Tags applied to every resource."
 }
+
+# --- Microsoft Entra ID sign-in (entra.tf) ------------------------------------
+
+variable "entra_sign_in_audience" {
+  type        = string
+  default     = "AzureADMyOrg"
+  description = "AzureADMyOrg: accounts of this tenant only. AzureADMultipleOrgs: accounts of the tenants in entra_allowed_tenant_ids."
+
+  validation {
+    condition     = contains(["AzureADMyOrg", "AzureADMultipleOrgs"], var.entra_sign_in_audience)
+    error_message = "entra_sign_in_audience must be AzureADMyOrg or AzureADMultipleOrgs."
+  }
+}
+
+variable "entra_allowed_tenant_ids" {
+  type        = list(string)
+  default     = []
+  description = "Tenant IDs whose accounts may sign in. Empty: this deployment's tenant. Required in practice with AzureADMultipleOrgs."
+
+  validation {
+    condition     = alltrue([for t in var.entra_allowed_tenant_ids : can(regex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", t))])
+    error_message = "entra_allowed_tenant_ids must be lower-case tenant GUIDs."
+  }
+}
+
+variable "entra_extra_redirect_uris" {
+  type        = list(string)
+  default     = []
+  description = "Additional redirect URIs, e.g. [\"http://localhost:8000/api/auth/entra/callback\"] to test sign-in locally."
+}

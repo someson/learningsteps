@@ -15,14 +15,24 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { ApiError, FIELDS, api, formatDate, type Entry } from "@/lib/api"
 
+export type EntryPosition = {
+  // Index in the whole filtered, sorted result, not just the current page.
+  index: number
+  total: number
+  hasPrev: boolean
+  hasNext: boolean
+  onPrev: () => void
+  onNext: () => void
+}
+
 type Props = {
   entryId: string | null
-  // Position in the current (filtered, sorted) list, for prev/next.
-  position?: { index: number; total: number; prevId?: string; nextId?: string }
-  onNavigate: (id: string | null) => void
+  // Absent when the entry is not on the loaded page (e.g. opened by URL).
+  position?: EntryPosition
+  onClose: () => void
   onEdit: (entry: Entry) => void
   onDelete: (entry: Entry) => void
-  onMissing: (id: string) => void
+  onMissing: () => void
   // Bumped by the parent after an edit so the dialog refetches.
   version: number
   hidden?: boolean
@@ -31,7 +41,7 @@ type Props = {
 export function EntryDetailsDialog({
   entryId,
   position,
-  onNavigate,
+  onClose,
   onEdit,
   onDelete,
   onMissing,
@@ -54,38 +64,40 @@ export function EntryDetailsDialog({
         if (cancelled) return
         if (err instanceof ApiError && err.status === 404) {
           toast.error("Entry not found", { description: "It may have been deleted." })
-          onMissing(entryId)
-        } else {
+          onMissing()
+        } else if (!(err instanceof ApiError && err.status === 401)) {
           toast.error(err instanceof Error ? err.message : "Could not load the entry")
+          onClose()
         }
-        onNavigate(null)
       })
       .finally(() => !cancelled && setLoading(false))
     return () => {
       cancelled = true
     }
-  }, [entryId, version, onNavigate, onMissing])
+    // Callbacks are recreated by the parent on every render; refetching must
+    // depend only on which entry is shown and on explicit version bumps.
+  }, [entryId, version])
 
   useEffect(() => {
     if (!entryId || hidden) return
     const onKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLElement && e.target.closest("input, textarea")) return
-      if (e.key === "ArrowLeft" && position?.prevId) onNavigate(position.prevId)
-      if (e.key === "ArrowRight" && position?.nextId) onNavigate(position.nextId)
+      if (e.key === "ArrowLeft" && position?.hasPrev) position.onPrev()
+      if (e.key === "ArrowRight" && position?.hasNext) position.onNext()
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [entryId, hidden, position, onNavigate])
+  }, [entryId, hidden, position])
 
   const shown = entry && entry.id === entryId ? entry : null
 
   return (
-    <Dialog open={!!entryId && !hidden} onOpenChange={(o) => !o && onNavigate(null)}>
+    <Dialog open={!!entryId && !hidden} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <div className="flex items-center gap-2">
             <DialogTitle>Entry</DialogTitle>
-            {position && position.index >= 0 && (
+            {position && (
               <Badge variant="secondary" className="tabular-nums">
                 {position.index + 1} of {position.total}
               </Badge>
@@ -144,8 +156,8 @@ export function EntryDetailsDialog({
               variant="outline"
               size="icon"
               aria-label="Previous entry"
-              disabled={!position?.prevId}
-              onClick={() => position?.prevId && onNavigate(position.prevId)}
+              disabled={!position?.hasPrev}
+              onClick={() => position?.onPrev()}
             >
               <ChevronLeftIcon />
             </Button>
@@ -153,8 +165,8 @@ export function EntryDetailsDialog({
               variant="outline"
               size="icon"
               aria-label="Next entry"
-              disabled={!position?.nextId}
-              onClick={() => position?.nextId && onNavigate(position.nextId)}
+              disabled={!position?.hasNext}
+              onClick={() => position?.onNext()}
             >
               <ChevronRightIcon />
             </Button>

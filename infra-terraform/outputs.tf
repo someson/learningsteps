@@ -86,6 +86,21 @@ output "k8s_service_account" {
   value = var.k8s_service_account
 }
 
+output "entra_client_id" {
+  description = "Application (client) ID of the web app registration (entra.tf)."
+  value       = azuread_application.web.client_id
+}
+
+output "entra_authority_tenant" {
+  description = "Tenant segment of the sign-in URL: a tenant ID, or \"organizations\" for a multi-tenant app."
+  value       = local.entra_authority_tenant
+}
+
+output "entra_allowed_tenants" {
+  description = "Comma-separated tenant IDs whose accounts may sign in."
+  value       = join(",", local.entra_allowed_tenants)
+}
+
 # --- Values needed by the GitHub Actions workflow (phase 4) -----------------
 
 output "github_actions_client_id" {
@@ -106,6 +121,9 @@ output "github_repository_variables" {
     ACR_LOGIN_SERVER      = azurerm_container_registry.main.login_server
     AKS_CLUSTER_NAME      = azurerm_kubernetes_cluster.main.name
     AKS_RESOURCE_GROUP    = azurerm_resource_group.main.name
+    ENTRA_CLIENT_ID       = azuread_application.web.client_id
+    ENTRA_TENANT          = local.entra_authority_tenant
+    ENTRA_ALLOWED_TENANTS = join(",", local.entra_allowed_tenants)
   }
 }
 

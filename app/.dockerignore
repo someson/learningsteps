@@ -2,6 +2,7 @@
 # cannot leak into a layer by accident.
 .env
 .env-*
+.env.*
 venv/
 **/__pycache__/
 **/*.py[cod]

@@ -9,3 +9,12 @@ github_oidc_subject_prefix = "repo:someson@3097223/learningsteps@1390992389"
 # Key Vault, the AKS API server and the state storage accept only these.
 # If your ISP rotates your IP, update this and re-apply bootstrap and main.
 admin_ip_ranges = ["203.0.113.10/32"]
+
+# Microsoft Entra ID sign-in (entra.tf). Default: accounts of the tenant you
+# deploy in. If your classmates' accounts live in another tenant (e.g. the
+# subscription is in a personal "Default Directory", accounts are the
+# university's), allow that tenant explicitly:
+# entra_sign_in_audience   = "AzureADMultipleOrgs"
+# entra_allowed_tenant_ids = ["00000000-0000-0000-0000-000000000000"]
+# To test sign-in from `docker compose` too:
+# entra_extra_redirect_uris = ["http://localhost:8000/api/auth/entra/callback"]

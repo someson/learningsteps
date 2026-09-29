@@ -2,7 +2,10 @@ module learningsteps/caddy
 
 go 1.27.1
 
-require github.com/caddyserver/caddy/v2 v2.11.4
+require (
+	github.com/caddyserver/caddy/v2 v2.11.4
+	github.com/mholt/caddy-ratelimit v0.1.0
+)
 
 require (
 	cel.dev/expr v0.25.2 // indirect

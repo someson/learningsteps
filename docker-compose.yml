@@ -1,8 +1,12 @@
-# Local run: docker compose up --build
+# Local run:
+#   cp app/.env-sample app/.env && cp app/.env.db-sample app/.env.db
+#   docker compose up -d --build
+#   docker compose exec -T api python create_user.py alice <<< 'a-long-password'
 # Then open http://localhost:8000/ (web UI) or http://localhost:8000/docs
 #
 # Uses the same image that CI will build and push to ACR, so what works here
-# is what runs in AKS. Needs app/.env (cp app/.env-sample app/.env).
+# is what runs in AKS — including the db-migrate step and the unprivileged
+# application role.
 
 name: learningsteps
 
@@ -10,31 +14,48 @@ services:
   api:
     build: ./app
     image: learningsteps-api:local
+    # App settings only; the admin credentials in .env.db never reach it.
     env_file: [./app/.env]
     ports:
       # Bound to loopback: reachable from this machine's browser only, not
       # from the rest of the LAN.
       - "127.0.0.1:8000:8000"
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     read_only: true
     tmpfs: [/tmp]
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
     restart: unless-stopped
 
+  # Same job as the db-migrate Job in AKS: creates the application role,
+  # applies database_setup.sql as the admin and grants row access only.
+  # Runs on every `up`; idempotent.
+  migrate:
+    # Same image as api. `build` too (a cache hit), so compose never tries to
+    # pull this local tag from a registry.
+    build: ./app
+    image: learningsteps-api:local
+    command: ["migrate.py"]
+    env_file: [./app/.env.db, ./app/.env]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    restart: "no"
+
   postgres:
     # Same major version as the Azure Flexible Server (var.postgres_version).
     image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
-    env_file: [./app/.env]
+    env_file: [./app/.env.db]
     # No published port: only the api service reaches it, over the compose
     # network. Uncomment to connect a local SQL client.
     # ports: ["127.0.0.1:5432:5432"]
     volumes:
       - pgdata:/var/lib/postgresql/data
-      # Applied once, on first start with an empty volume.
-      - ./app/database_setup.sql:/docker-entrypoint-initdb.d/database_setup.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s

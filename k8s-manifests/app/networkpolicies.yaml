@@ -2,8 +2,9 @@
 # Calico (network_policy = "calico" in aks.tf).
 #
 #   internet ──80/443──▶ caddy ──8000──▶ api ──5432──▶ snet-db
-#                          │                            ▲
-#                          └──443──▶ Let's Encrypt       │
+#                          │                  │         ▲
+#                          └──443──▶ Let's    └──443──▶ Microsoft Entra ID
+#                                   Encrypt             │  (sign-in)
 #                                           db-migrate ──┘
 ---
 apiVersion: networking.k8s.io/v1
@@ -96,6 +97,16 @@ spec:
       ports:
         - protocol: TCP
           port: 5432
+    # Microsoft Entra ID token endpoint (sign-in code exchange). Its
+    # addresses are many and change, so: any public address on 443, with
+    # private ranges excluded so the API cannot reach into the VNET.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
+      ports:
+        - protocol: TCP
+          port: 443
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

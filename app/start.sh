@@ -28,6 +28,14 @@ if [ ! -f ".env" ]; then
     echo "⚠️  Warning: .env file not found. Make sure to set DATABASE_URL"
 fi
 
+# Apply the schema and role grants (needs ADMIN_DATABASE_URL, e.g. from .env.db)
+if [ -f ".env.db" ]; then
+    echo "🗄️  Migrating database..."
+    (set -a && . ./.env.db && . ./.env && cd api && SCHEMA_PATH=../database_setup.sql python migrate.py)
+else
+    echo "⚠️  Warning: .env.db not found, skipping migration (see .env.db-sample)"
+fi
+
 # Build the web UI (served at /) if Node is available
 if command -v npm >/dev/null 2>&1; then
     echo "🎨 Building web UI..."
@@ -39,5 +47,6 @@ fi
 # Start the API
 echo "🎉 Starting FastAPI server..."
 echo "🖥️  Web UI will be available at: http://localhost:8000/"
-echo "📖 API docs will be available at: http://localhost:8000/docs"
+echo "📖 API docs will be available at: http://localhost:8000/docs (with ENABLE_DOCS=true)"
+echo "👤 Create a user first: cd api && python create_user.py <name>"
 cd api && uvicorn main:app --reload --host 0.0.0.0 --port 8000

@@ -5,18 +5,28 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 from repositories.postgres_repository import PostgresDB
+from routers.auth_router import router as auth_router
 from routers.journal_router import router as journal_router
+from security import (
+    DOCS_ENABLED,
+    BodySizeLimitMiddleware,
+    CSRFMiddleware,
+    RequestIdFilter,
+    SecurityHeadersMiddleware,
+)
 import logging
 
 load_dotenv()
 
-# Configure basic console logging
+# Console logging. Every line carries the request ID that is also returned in
+# the X-Request-ID header, so a user's report can be matched to the logs.
+# Security-relevant events (logins, changes, deletes) go to the "audit" logger.
+_handler = logging.StreamHandler()
+_handler.addFilter(RequestIdFilter())
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler()
-    ]
+    format='%(asctime)s - %(name)s - %(levelname)s - [%(request_id)s] %(message)s',
+    handlers=[_handler],
 )
 
 logger = logging.getLogger(__name__)
@@ -36,14 +46,25 @@ app = FastAPI(
     title="LearningSteps API",
     description="A simple learning journal API for tracking daily work, struggles, and intentions",
     lifespan=lifespan,
+    docs_url="/docs" if DOCS_ENABLED else None,
+    redoc_url=None,
+    openapi_url="/openapi.json" if DOCS_ENABLED else None,
 )
 # JSON API. Everything under /api is data; the web UI and docs live outside it.
+app.include_router(auth_router, prefix="/api")
 app.include_router(journal_router, prefix="/api")
 
 # Web UI: the Vite build of frontend/ (see app/frontend/vite.config.ts). The
 # image builds it in a separate stage; locally run `npm run build` once.
 STATIC_DIR = Path(__file__).parent / "static"
 INDEX_HTML = STATIC_DIR / "index.html"
+
+# Last added runs first: headers wrap everything (including the rejections
+# below), then oversized bodies, then cross-site requests are turned away
+# before any route or database work.
+app.add_middleware(CSRFMiddleware)
+app.add_middleware(BodySizeLimitMiddleware)
+app.add_middleware(SecurityHeadersMiddleware, index_html=INDEX_HTML)
 
 app.mount(
     "/assets",
