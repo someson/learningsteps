@@ -8,6 +8,12 @@ data:
   # Per pod. HPA max replicas (5) x 5 = 25, well under the ~50 connections
   # a B1ms Flexible Server allows.
   DB_POOL_MAX_SIZE: "5"
+  # Trust X-Forwarded-For from any peer: the NetworkPolicy admits only Caddy
+  # to this port, and Caddy overwrites the header with the real client IP.
+  # Needed so login throttling and audit logs see clients, not Caddy.
+  FORWARDED_ALLOW_IPS: "*"
+  SESSION_TTL_HOURS: "12"
+  # COOKIE_SECURE defaults to true and ENABLE_DOCS to false: not set here.
 ---
 apiVersion: apps/v1
 kind: Deployment

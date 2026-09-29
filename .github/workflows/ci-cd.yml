@@ -51,18 +51,35 @@ jobs:
         run: ruff check app
 
       # Same compose file as local development: the API image built from
-      # app/Dockerfile plus PostgreSQL with the schema applied on first start.
+      # app/Dockerfile, the migrate step (schema + unprivileged app role) and
+      # PostgreSQL. Readiness is polled rather than `up --wait`, which does
+      # not cope reliably with the one-shot migrate container.
       - name: Start API and database
         run: |
           cp app/.env-sample app/.env
-          docker compose up -d --build --wait --wait-timeout 120
+          cp app/.env.db-sample app/.env.db
+          docker compose up -d --build
+          curl -fsS --retry 60 --retry-delay 2 --retry-all-errors -o /dev/null http://localhost:8000/readyz
+
+      # Throwaway accounts with random passwords, created the way an operator
+      # would (create_user.py inside the API container).
+      - name: Create test users
+        run: |
+          for n in 1 2; do
+            pw="$(openssl rand -hex 16)"
+            echo "::add-mask::$pw"
+            echo "TEST_PASSWORD$([ $n = 2 ] && echo 2)=$pw" >> "$GITHUB_ENV"
+            echo "$pw" | docker compose exec -T api python create_user.py "ci-user-$n"
+          done
+          echo "TEST_USER=ci-user-1" >> "$GITHUB_ENV"
+          echo "TEST_USER2=ci-user-2" >> "$GITHUB_ENV"
 
       - name: API tests
         run: python app/test_api.py
 
       - name: Container logs
         if: failure()
-        run: docker compose logs --no-color
+        run: docker compose ps -a && docker compose logs --no-color
 
   scan-image:
     name: scan-image (${{ matrix.image }})
@@ -117,6 +134,14 @@ jobs:
           docker run --rm -v "$PWD:/src" -w /src "$TRIVY_IMAGE" config \
             --tf-vars infra-terraform/terraform.tfvars.example \
             --severity HIGH,CRITICAL --exit-code 1 infra-terraform
+
+      # The image scan does not see the web UI's npm packages (only the built
+      # bundle ships), yet their code runs in every visitor's browser.
+      - name: Trivy — web UI npm dependencies
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src "$TRIVY_IMAGE" fs \
+            --scanners vuln --include-dev-deps \
+            --severity HIGH,CRITICAL --exit-code 1 --no-progress app/frontend
 
       - name: Hadolint — Dockerfiles
         run: |
@@ -258,11 +283,17 @@ jobs:
           jq -r .logs <<<"$out"
           exit "$(jq -r .exitCode <<<"$out")"
 
-      # No -k: the Let's Encrypt certificate must be valid. / is the web UI;
-      # /api/entries goes through Caddy, the API and the database.
+      # No -k: the Let's Encrypt certificate must be valid. / is the web UI.
+      # /api/entries with a bogus session must be 401, not 5xx: the lookup
+      # goes through Caddy, the API and the database. /docs must stay off.
       - name: Smoke test
         run: |
-          for path in / /docs /api/entries; do
-            curl -fsS --retry 10 --retry-delay 6 --retry-all-errors \
-              -o /dev/null -w "$path %{http_code}\n" "https://$INGRESS_IP$path"
+          curl -fsS --retry 10 --retry-delay 6 --retry-all-errors \
+            -o /dev/null -w "/ %{http_code}\n" "https://$INGRESS_IP/"
+          for check in "/api/entries 401" "/docs 404"; do
+            set -- $check
+            code="$(curl -sS --retry 10 --retry-delay 6 --retry-all-errors -o /dev/null -w '%{http_code}' \
+              -H 'Cookie: __Host-session=smoke-test' "https://$INGRESS_IP$1")"
+            echo "$1 $code (want $2)"
+            [ "$code" = "$2" ]
           done
