@@ -1,0 +1,7 @@
+# Explicit rule set so a ruff upgrade cannot silently change what CI enforces.
+# E4/E7/E9/F: ruff's classic defaults (syntax, undefined names, unused imports)
+# B: likely bugs · ASYNC: blocking calls on the event loop · S: bandit security checks
+[lint]
+select = ["E4", "E7", "E9", "F", "B", "ASYNC", "S"]
+# B008: FastAPI's `Depends(...)` in argument defaults is the framework's idiom.
+ignore = ["B008"]

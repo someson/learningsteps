@@ -63,7 +63,8 @@ async def main() -> None:
     finally:
         await conn.close()
 
-    with open(SCHEMA_PATH) as f:
+    # One-shot script: nothing else runs on the event loop, so a blocking read is fine.
+    with open(SCHEMA_PATH) as f:  # noqa: ASYNC230
         schema = f.read()
 
     conn = await asyncpg.connect(app_dsn)

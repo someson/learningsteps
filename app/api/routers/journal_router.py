@@ -40,7 +40,7 @@ async def create_entry(entry_data: EntryCreate, entry_service: EntryService = De
         # server-side failure. Log the details; never echo them to the client,
         # where they would disclose schema, driver and connection information.
         logger.exception("Error creating entry")
-        raise HTTPException(status_code=500, detail="Error creating entry")
+        raise HTTPException(status_code=500, detail="Error creating entry") from None
 
 # Implements GET /entries endpoint to list all journal entries
 # Example response: [{"id": "123", "work": "...", "struggle": "...", "intention": "..."}]

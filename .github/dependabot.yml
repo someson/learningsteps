@@ -1,0 +1,37 @@
+# Weekly version updates. Security updates are enabled separately in the
+# repo settings and arrive as soon as an advisory is published.
+#
+# Chainguard's free images publish only `latest`, so the Dockerfile digests
+# are the only thing that moves them — each bump can change the Python or Go
+# version; CI (tests + Trivy) is the gate.
+#
+# Not covered: the tool images pinned in .github/workflows/ci-cd.yml env
+# (trivy, hadolint, gitleaks) — bump those by hand.
+
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /app/api
+    schedule: { interval: weekly }
+
+  - package-ecosystem: docker
+    directories: [/app, /caddy]
+    schedule: { interval: weekly }
+
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule: { interval: weekly }
+
+  - package-ecosystem: gomod
+    directory: /caddy
+    schedule: { interval: weekly }
+    groups:
+      go-deps:
+        patterns: ["*"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+    groups:
+      actions:
+        patterns: ["*"]

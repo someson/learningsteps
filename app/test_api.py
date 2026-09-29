@@ -4,12 +4,18 @@ Simple test script for the LearningSteps API
 Tests all available endpoints
 """
 
+import os
+import sys
 import requests
 import json
 from datetime import datetime
 
-# API base URL
-BASE_URL = "http://localhost:8000"
+# API base URL (override for a deployed instance: BASE_URL=https://<ip> python test_api.py)
+BASE_URL = os.getenv("BASE_URL", "http://localhost:8000")
+TIMEOUT = 10  # seconds per request
+
+# Requests that did not return 2xx; a non-empty list makes the script exit 1 (CI gate)
+FAILURES = []
 
 def print_section(title):
     """Print a formatted section header"""
@@ -20,9 +26,11 @@ def print_section(title):
 def print_response(response):
     """Pretty print API response"""
     print(f"Status Code: {response.status_code}")
+    if not response.ok:
+        FAILURES.append(f"{response.request.method} {response.request.path_url} -> {response.status_code}")
     try:
         print(f"Response: {json.dumps(response.json(), indent=2, default=str)}")
-    except:
+    except ValueError:  # body is not JSON
         print(f"Response: {response.text}")
 
 def test_create_entry():
@@ -35,7 +43,7 @@ def test_create_entry():
         "intention": "Build a complete test suite for the API"
     }
     
-    response = requests.post(f"{BASE_URL}/entries", json=entry_data)
+    response = requests.post(f"{BASE_URL}/entries", json=entry_data, timeout=TIMEOUT)
     print_response(response)
     
     if response.status_code == 200:
@@ -46,7 +54,7 @@ def test_get_all_entries():
     """Test GET /entries - Get all journal entries"""
     print_section("TEST 2: Get All Entries")
     
-    response = requests.get(f"{BASE_URL}/entries")
+    response = requests.get(f"{BASE_URL}/entries", timeout=TIMEOUT)
     print_response(response)
     
     if response.status_code == 200:
@@ -63,7 +71,7 @@ def test_get_single_entry(entry_id):
         print("⚠️  No entry ID available, skipping test")
         return
     
-    response = requests.get(f"{BASE_URL}/entries/{entry_id}")
+    response = requests.get(f"{BASE_URL}/entries/{entry_id}", timeout=TIMEOUT)
     print_response(response)
 
 def test_update_entry(entry_id):
@@ -78,7 +86,7 @@ def test_update_entry(entry_id):
         "work": "Updated: Completed API testing script"
     }
     
-    response = requests.patch(f"{BASE_URL}/entries/{entry_id}", json=update_data)
+    response = requests.patch(f"{BASE_URL}/entries/{entry_id}", json=update_data, timeout=TIMEOUT)
     print_response(response)
 
 def test_delete_single_entry(entry_id):
@@ -89,14 +97,14 @@ def test_delete_single_entry(entry_id):
         print("⚠️  No entry ID available, skipping test")
         return
     
-    response = requests.delete(f"{BASE_URL}/entries/{entry_id}")
+    response = requests.delete(f"{BASE_URL}/entries/{entry_id}", timeout=TIMEOUT)
     print_response(response)
 
 def test_delete_all_entries():
     """Test DELETE /entries - Delete all entries"""
     print_section("TEST 6: Delete All Entries")
     
-    response = requests.delete(f"{BASE_URL}/entries")
+    response = requests.delete(f"{BASE_URL}/entries", timeout=TIMEOUT)
     print_response(response)
 
 def test_api_health():
@@ -104,7 +112,7 @@ def test_api_health():
     print_section("API Health Check")
     
     try:
-        response = requests.get(f"{BASE_URL}/docs")
+        response = requests.get(f"{BASE_URL}/docs", timeout=TIMEOUT)
         if response.status_code == 200:
             print("✅ API is running and accessible")
             return True
@@ -125,7 +133,7 @@ def main():
     if not test_api_health():
         print("\n❌ Tests aborted: API is not accessible")
         print("💡 Tip: Run './start.sh' to start the API")
-        return
+        sys.exit(1)
     
     # Test creating an entry
     created_entry_id = test_create_entry()
@@ -150,6 +158,11 @@ def main():
     # print("\n⚠️  Warning: The next test will delete ALL entries from the database")
     # test_delete_all_entries()
     
+    if FAILURES:
+        print_section(f"❌ {len(FAILURES)} request(s) failed")
+        print("\n".join(FAILURES))
+        sys.exit(1)
+
     print_section("✅ Tests Complete!")
     print("💡 Tip: Visit http://localhost:8000/docs to explore the API interactively")
 

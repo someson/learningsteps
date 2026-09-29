@@ -108,14 +108,39 @@ resource "azurerm_role_assignment" "github_acr_push" {
   principal_id         = azurerm_user_assigned_identity.github.principal_id
 }
 
-# "Cluster User" grants only the ability to fetch a kubeconfig (and to use
-# `az aks command invoke`). What the pipeline may then DO inside the cluster
-# is decided by the Azure RBAC assignment below, enforced because the cluster
-# has azure_rbac_enabled.
+# "Cluster User" grants only the ability to fetch a kubeconfig. What the
+# pipeline may then DO inside the cluster is decided by the Azure RBAC
+# assignment below, enforced because the cluster has azure_rbac_enabled.
 resource "azurerm_role_assignment" "github_aks_user" {
   scope                = azurerm_kubernetes_cluster.main.id
   role_definition_name = "Azure Kubernetes Service Cluster User Role"
   principal_id         = azurerm_user_assigned_identity.github.principal_id
+}
+
+# The API server accepts only admin_ip_ranges and GitHub runners have no fixed
+# IP, so CI deploys through `az aks command invoke`: Azure runs kubectl in a
+# pod inside the cluster, authenticated with the caller's Entra token (so the
+# namespace-scoped RBAC Writer below still limits what it can change). The
+# only built-in role with runCommand is "Cluster Admin Role", which also
+# hands out admin credentials — hence this two-action custom role.
+resource "azurerm_role_definition" "aks_run_command" {
+  name              = "${local.name}-aks-run-command"
+  scope             = azurerm_kubernetes_cluster.main.id
+  description       = "Run kubectl through az aks command invoke; nothing else."
+  assignable_scopes = [azurerm_kubernetes_cluster.main.id]
+
+  permissions {
+    actions = [
+      "Microsoft.ContainerService/managedClusters/runCommand/action",
+      "Microsoft.ContainerService/managedClusters/commandResults/read",
+    ]
+  }
+}
+
+resource "azurerm_role_assignment" "github_aks_run_command" {
+  scope              = azurerm_kubernetes_cluster.main.id
+  role_definition_id = azurerm_role_definition.aks_run_command.role_definition_resource_id
+  principal_id       = azurerm_user_assigned_identity.github.principal_id
 }
 
 # Lets the pipeline apply manifests via Entra-authenticated kubectl.
