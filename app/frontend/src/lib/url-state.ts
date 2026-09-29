@@ -13,11 +13,13 @@ export type ViewState = {
   sort: SortKey
   dir: SortDir
   entry: string | null
+  // "admin" shows the administration page instead of the journal.
+  view: "admin" | null
 }
 
 export const PAGE_SIZES = [10, 20, 50, 100]
 const SORT_KEYS: SortKey[] = ["created_at", "updated_at", "work", "struggle", "intention"]
-const DEFAULTS: ViewState = { q: "", page: 1, size: 10, sort: "created_at", dir: "desc", entry: null }
+const DEFAULTS: ViewState = { q: "", page: 1, size: 10, sort: "created_at", dir: "desc", entry: null, view: null }
 
 function read(): ViewState {
   const p = new URLSearchParams(window.location.search)
@@ -32,6 +34,7 @@ function read(): ViewState {
     sort: SORT_KEYS.includes(sort) ? sort : DEFAULTS.sort,
     dir: dir === "asc" || dir === "desc" ? dir : DEFAULTS.dir,
     entry: p.get("entry"),
+    view: p.get("view") === "admin" ? "admin" : null,
   }
 }
 
@@ -43,6 +46,7 @@ function write(state: ViewState, push: boolean) {
   if (state.sort !== DEFAULTS.sort) p.set("sort", state.sort)
   if (state.dir !== DEFAULTS.dir) p.set("dir", state.dir)
   if (state.entry) p.set("entry", state.entry)
+  if (state.view) p.set("view", state.view)
   const qs = p.toString()
   const url = `${window.location.pathname}${qs ? `?${qs}` : ""}`
   if (url === `${window.location.pathname}${window.location.search}`) return

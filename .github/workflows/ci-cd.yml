@@ -73,6 +73,11 @@ jobs:
           done
           echo "TEST_USER=ci-user-1" >> "$GITHUB_ENV"
           echo "TEST_USER2=ci-user-2" >> "$GITHUB_ENV"
+          pw="$(openssl rand -hex 16)"
+          echo "::add-mask::$pw"
+          echo "TEST_ADMIN_PASSWORD=$pw" >> "$GITHUB_ENV"
+          echo "TEST_ADMIN=ci-admin" >> "$GITHUB_ENV"
+          echo "$pw" | docker compose exec -T api python create_user.py ci-admin --admin
 
       - name: API tests
         run: python app/test_api.py

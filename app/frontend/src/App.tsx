@@ -12,6 +12,7 @@ import {
   FileTextIcon,
   Loader2Icon,
   LogOutIcon,
+  ShieldIcon,
   MoonIcon,
   MoreHorizontalIcon,
   PencilIcon,
@@ -25,6 +26,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 
+import { AdminPage } from "@/components/admin-page"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { EntryDetailsDialog } from "@/components/entry-details-dialog"
 import { EntryFormDialog } from "@/components/entry-form-dialog"
@@ -370,6 +372,11 @@ function Journal({
                     <div className="text-foreground truncate text-sm font-medium">{user.username}</div>
                   </DropdownMenuLabel>
                   <DropdownMenuSeparator />
+                  {user.is_admin && (
+                    <DropdownMenuItem onSelect={() => setView({ view: "admin", entry: null })}>
+                      <ShieldIcon /> Administration
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuItem onSelect={onLogout}>
                     <LogOutIcon /> Sign out
                   </DropdownMenuItem>
@@ -379,6 +386,10 @@ function Journal({
           </div>
         </header>
 
+        {/* The API enforces the role; this only decides what to render. */}
+        {view.view === "admin" && user.is_admin ? (
+          <AdminPage me={user} onBack={() => setView({ view: null })} onEntriesChanged={reload} />
+        ) : (
         <main className="mx-auto grid w-full max-w-7xl flex-1 grid-cols-[minmax(0,1fr)] content-start gap-6 px-4 py-8 sm:px-6">
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div>
@@ -618,6 +629,7 @@ function Journal({
             </div>
           </Card>
         </main>
+        )}
 
         <footer className="text-muted-foreground mx-auto w-full max-w-7xl px-4 pb-8 text-xs sm:px-6">
           JSON API under <code className="font-mono">/api</code>

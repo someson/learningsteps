@@ -51,7 +51,21 @@ async def current_user(request: Request) -> Dict[str, Any]:
 
 def _user_out(request: Request, user: Dict[str, Any]) -> Dict[str, Any]:
     # Every signed-in user may open the API docs (see main.py).
-    return {"username": user["username"], "docs_url": "/docs"}
+    return {
+        "id": str(user["id"]),
+        "username": user["username"],
+        "docs_url": "/docs",
+        "is_admin": bool(user.get("is_admin")),
+    }
+
+
+async def require_admin(request: Request) -> Dict[str, Any]:
+    """Dependency: a signed-in administrator, or 401/403."""
+    user = await current_user(request)
+    if not user.get("is_admin"):
+        audit.warning("admin access denied user=%s ip=%s path=%s", user["username"], client_ip(request.scope), request.url.path)
+        raise HTTPException(status_code=403, detail="Administrator role required")
+    return user
 
 
 # Short-lived cookie carrying state, nonce and the PKCE verifier across the
@@ -128,13 +142,16 @@ async def entra_callback(request: Request):
         return back("entra_failed")
 
     user = await get_db(request).upsert_entra_user(identity)
+    if user["disabled_at"]:
+        audit.warning("entra login refused: account disabled user=%s ip=%s", identity["upn"], ip)
+        return back("account_disabled")
     token = new_session_token()
     await get_db(request).create_session(user["id"], token_hash(token), SESSION_TTL_SECONDS)
     response = back()
     _start_session(response, token)
     audit.info(
-        "login ok via entra user=%s tid=%s oid=%s new=%s ip=%s",
-        identity["upn"], identity["tenant_id"], identity["object_id"], user["created"], ip,
+        "login ok via entra user=%s tid=%s oid=%s new=%s admin=%s ip=%s",
+        identity["upn"], identity["tenant_id"], identity["object_id"], user["created"], user["is_admin"], ip,
     )
     return response
 
@@ -165,6 +182,12 @@ async def login(body: LoginRequest, request: Request, response: Response):
         raise HTTPException(status_code=401, detail="Invalid username or password")
 
     await db.clear_login_failures(username)
+    # Checked only after the password: a blocked account's existence is not
+    # revealed to someone who does not know its password.
+    if user["disabled_at"]:
+        audit.warning("login refused: account disabled user=%s ip=%s", username, ip)
+        raise HTTPException(status_code=403, detail="This account is disabled")
+    await db.mark_login(user["id"])
     token = new_session_token()
     await db.create_session(user["id"], token_hash(token), SESSION_TTL_SECONDS)
     _start_session(response, token)

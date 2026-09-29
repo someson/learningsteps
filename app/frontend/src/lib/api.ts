@@ -72,7 +72,19 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   throw new ApiError(res.status, typeof detail === "string" ? detail : `Request failed (${res.status})`)
 }
 
-export type User = { username: string; docs_url: string | null }
+export type User = { id: string; username: string; docs_url: string | null; is_admin: boolean }
+
+export type AdminUser = {
+  id: string
+  name: string
+  login: string
+  kind: "entra" | "local"
+  is_admin: boolean
+  disabled_at: string | null
+  created_at: string
+  last_login_at: string | null
+  entries: number
+}
 
 export type ListParams = {
   limit: number
@@ -119,6 +131,13 @@ export const api = {
     request<{ detail: string; entry_id: string }>("DELETE", `/entries/${encodeURIComponent(id)}`),
   restore: (id: string) => request<Entry>("POST", `/entries/${encodeURIComponent(id)}/restore`),
   removeAll: () => request<{ detail: string; deleted: number }>("DELETE", "/entries"),
+
+  admin: {
+    users: () => request<{ users: AdminUser[]; orphan_entries: number }>("GET", "/admin/users"),
+    block: (id: string) => request<unknown>("POST", `/admin/users/${encodeURIComponent(id)}/block`),
+    unblock: (id: string) => request<unknown>("POST", `/admin/users/${encodeURIComponent(id)}/unblock`),
+    adoptOrphans: () => request<{ adopted: number }>("POST", "/admin/orphans/adopt"),
+  },
 }
 
 // Mirrors the server rules (trimmed, 3–256 chars) so most errors show before a

@@ -29,6 +29,14 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS upn VARCHAR(256);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name VARCHAR(256);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_entra ON users(entra_tenant_id, entra_object_id);
 
+-- Administration (routers/admin_router.py). For Entra users is_admin mirrors
+-- the "Admin" app role in the ID token and is refreshed on every sign-in, so
+-- Entra stays the source of truth; local accounts get it from create_user.py.
+-- disabled_at blocks sign-in and ends the user's sessions.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS disabled_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMP WITH TIME ZONE;
+
 -- Server-side sessions. Only a SHA-256 of the cookie token is stored, so a
 -- database leak does not hand out live sessions.
 CREATE TABLE IF NOT EXISTS sessions (

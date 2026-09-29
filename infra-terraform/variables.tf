@@ -235,3 +235,14 @@ variable "entra_extra_redirect_uris" {
   default     = []
   description = "Additional redirect URIs, e.g. [\"http://localhost:8000/api/auth/entra/callback\"] to test sign-in locally."
 }
+
+variable "entra_admin_object_ids" {
+  type        = list(string)
+  default     = []
+  description = "Entra object IDs of the users who get the app's Admin role. Empty: whoever runs Terraform. Find one with: az ad user show --id <upn> --query id -o tsv"
+
+  validation {
+    condition     = alltrue([for id in var.entra_admin_object_ids : can(regex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", id))])
+    error_message = "entra_admin_object_ids must be lower-case object ID GUIDs."
+  }
+}

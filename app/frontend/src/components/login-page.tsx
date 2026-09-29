@@ -12,6 +12,7 @@ const LOGIN_ERRORS: Record<string, string> = {
   entra_cancelled: "Microsoft sign-in was cancelled.",
   entra_tenant: "This Microsoft account's organization is not allowed to use this app.",
   entra_failed: "Microsoft sign-in failed. Please try again.",
+  account_disabled: "This account has been disabled by an administrator.",
 }
 
 function takeLoginError(): string | null {

@@ -18,3 +18,5 @@ admin_ip_ranges = ["203.0.113.10/32"]
 # entra_allowed_tenant_ids = ["00000000-0000-0000-0000-000000000000"]
 # To test sign-in from `docker compose` too:
 # entra_extra_redirect_uris = ["http://localhost:8000/api/auth/entra/callback"]
+# Administrators of the app (Admin app role). Default: whoever runs Terraform.
+# entra_admin_object_ids = ["00000000-0000-0000-0000-000000000000"]

@@ -6,6 +6,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 from repositories.postgres_repository import PostgresDB
+from routers.admin_router import router as admin_router
 from routers.auth_router import current_user, router as auth_router
 from routers.journal_router import router as journal_router
 from security import (
@@ -55,6 +56,7 @@ app = FastAPI(
 # JSON API. Everything under /api is data; the web UI and docs live outside it.
 app.include_router(auth_router, prefix="/api")
 app.include_router(journal_router, prefix="/api")
+app.include_router(admin_router, prefix="/api")
 
 # Web UI: the Vite build of frontend/ (see app/frontend/vite.config.ts). The
 # image builds it in a separate stage; locally run `npm run build` once.
