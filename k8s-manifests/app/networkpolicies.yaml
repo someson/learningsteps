@@ -6,6 +6,8 @@
 #                          └──443──▶ Let's    └──443──▶ Microsoft Entra ID
 #                                   Encrypt             │  (sign-in)
 #                                           db-migrate ──┘
+#
+#   prometheus (namespace monitoring) ──9000──▶ api (metrics port only)
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -90,6 +92,18 @@ spec:
       ports:
         - protocol: TCP
           port: 8000
+    # Prometheus (kube-prometheus-stack, k8s-manifests/monitoring/) scrapes
+    # the metrics port only; it never reaches the application port.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 9000
   egress:
     - to:
         - ipBlock:

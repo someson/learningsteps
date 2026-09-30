@@ -4,6 +4,11 @@
 #   docker compose exec -T api python create_user.py alice <<< 'a-long-password'
 # Then open http://localhost:8000/ (web UI) or http://localhost:8000/docs
 #
+# Monitoring (Prometheus + Grafana with the LearningSteps dashboard):
+#   docker compose --profile monitoring up -d --build
+#   Grafana http://localhost:3000 (anonymous read-only; admin / admin to edit)
+#   Prometheus http://localhost:9090
+#
 # Uses the same image that CI will build and push to ACR, so what works here
 # is what runs in AKS — including the db-migrate step and the unprivileged
 # application role.
@@ -20,6 +25,9 @@ services:
       # Bound to loopback: reachable from this machine's browser only, not
       # from the rest of the LAN.
       - "127.0.0.1:8000:8000"
+      # Prometheus metrics (app/api/metrics.py), loopback only. The compose
+      # Prometheus scrapes it over the compose network.
+      - "127.0.0.1:9000:9000"
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -63,5 +71,58 @@ services:
       retries: 10
     restart: unless-stopped
 
+  # --- Monitoring (profile "monitoring") ------------------------------------
+  # Same dashboard and alert rules as in AKS (monitoring/, and
+  # k8s-manifests/monitoring/ for the cluster).
+  prometheus:
+    profiles: [monitoring]
+    image: prom/prometheus:v3.15.0@sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/rules.yml:/etc/prometheus/rules.yml:ro
+      - promdata:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    depends_on: [api]
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    restart: unless-stopped
+
+  grafana:
+    profiles: [monitoring]
+    image: grafana/grafana:13.2.3@sha256:b28bae15e219c998fb0e0424ed724930cc61b1f61fb404d47c862f9a23f9e572
+    environment:
+      # Loopback only, so anonymous viewing is safe here and saves a login.
+      # Editing needs the admin account (admin / admin, Grafana asks to change
+      # it at first login; stored in the grafana volume).
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/dashboards/learningsteps.json
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      # No background plugin installs from grafana.com: only what ships.
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/etc/grafana/dashboards:ro
+      - grafanadata:/var/lib/grafana
+    tmpfs: [/tmp]
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on: [prometheus]
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    restart: unless-stopped
+
 volumes:
   pgdata:
+  promdata:
+  grafanadata:

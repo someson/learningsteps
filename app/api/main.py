@@ -9,6 +9,7 @@ from repositories.postgres_repository import PostgresDB
 from routers.admin_router import router as admin_router
 from routers.auth_router import current_user, require_admin, router as auth_router
 import errors
+from metrics import MetricsMiddleware, MetricsServer
 from routers.journal_router import router as journal_router
 from security import (
     DOCS_ENABLED,
@@ -39,7 +40,8 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     # A single connection pool for the life of the process. Previously a new
     # pool was opened and closed on every request.
-    async with PostgresDB() as db:
+    # Metrics (HTTP, database probe) on their own port, see metrics.py.
+    async with PostgresDB() as db, MetricsServer(db):
         app.state.db = db
         logger.info("LearningSteps API started successfully")
         yield
@@ -84,6 +86,8 @@ DOCS_HTML = get_swagger_ui_html(
 ).body.decode()
 
 app.add_middleware(SecurityHeadersMiddleware, index_html=INDEX_HTML, docs_html=DOCS_HTML)
+# Outermost: measures every response, including the ones rejected above.
+app.add_middleware(MetricsMiddleware)
 
 
 async def require_docs_access(request: Request) -> None:

@@ -1,0 +1,19 @@
+# Scrape the API pods' metrics port (containerPort "metrics", 9000). A
+# PodMonitor rather than a ServiceMonitor: the metrics port stays out of the
+# Service, so nothing that talks to the Service can reach it.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: learningsteps-api
+  namespace: learningsteps
+spec:
+  # job="learningsteps-api", the same job name as the local compose
+  # Prometheus, so the dashboard and alert rules work unchanged.
+  jobLabel: app.kubernetes.io/name
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: learningsteps-api
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: 15s

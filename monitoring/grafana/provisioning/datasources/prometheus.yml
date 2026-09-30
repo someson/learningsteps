@@ -1,0 +1,11 @@
+# Local Grafana only. In AKS kube-prometheus-stack provisions its own
+# Prometheus datasource; the dashboard picks either via its datasource variable.
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
