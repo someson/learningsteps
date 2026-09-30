@@ -9,15 +9,20 @@ Needs three existing accounts (create them with api/create_user.py):
   TEST_ADMIN / TEST_ADMIN_PASSWORD      default: admin / admin-password-1 (--admin)
 
   BASE_URL=http://localhost:8000 python test_api.py
+
+METRICS_URL (e.g. http://localhost:9000/metrics) additionally checks the
+Prometheus endpoint; it is on its own port, which compose does not publish.
 """
 
 import os
+import re
 import sys
 import uuid
 
 import requests
 
 BASE_URL = os.getenv("BASE_URL", "http://localhost:8000")
+METRICS_URL = os.getenv("METRICS_URL")
 API_URL = f"{BASE_URL}/api"
 TIMEOUT = 10  # seconds per request
 
@@ -233,6 +238,28 @@ def test_admin(s1):
     expect("adopt ownerless entries", admin.post(f"{API_URL}/admin/orphans/adopt", timeout=TIMEOUT), 200)
 
 
+def test_metrics():
+    section("Metrics")
+    # Only on the metrics port: the app port (the one Caddy proxies) has none.
+    expect("no /metrics on the app port", requests.get(f"{BASE_URL}/metrics", timeout=TIMEOUT), 404)
+    if not METRICS_URL:
+        print("  (METRICS_URL not set: metrics port not checked)")
+        return
+    r = expect("metrics endpoint", requests.get(METRICS_URL, timeout=TIMEOUT), 200)
+    text = r.text
+    for series in (
+        'learningsteps_http_requests_total{method="POST",route="/api/entries",status="200"}',
+        'learningsteps_http_requests_total{method="GET",route="/api/entries/{entry_id}",status="200"}',
+        'learningsteps_http_request_duration_seconds_bucket{',
+        'learningsteps_db_up 1.0',
+        'learningsteps_logins_total{method="password",result="ok"}',
+    ):
+        check(f"metric {series}", series in text)
+    # Route templates only: a raw entry ID in a label would mean one series
+    # per entry.
+    check("no raw paths in labels", not re.search(r'route="[^"]*[0-9a-f]{8}-[0-9a-f]{4}-', text))
+
+
 def main():
     print(f"\n🚀 LearningSteps API tests against {BASE_URL}")
     try:
@@ -251,6 +278,7 @@ def main():
     test_isolation(s1, entry_id)
     test_admin(s1)
     s1.delete(f"{API_URL}/entries/{entry_id}", timeout=TIMEOUT)
+    test_metrics()
 
     if FAILURES:
         section(f"❌ {len(FAILURES)} check(s) failed")

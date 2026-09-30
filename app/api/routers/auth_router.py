@@ -7,6 +7,7 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
 import entra
+from metrics import LOGINS
 from security import (
     COOKIE_SECURE,
     LOCAL_LOGIN,
@@ -121,6 +122,7 @@ async def entra_callback(request: Request):
     tx = entra.decode_transaction(request.cookies.get(ENTRA_TX_COOKIE))
 
     def back(error: str | None = None) -> RedirectResponse:
+        LOGINS.labels("entra", "ok" if not error else "disabled" if error == "account_disabled" else "failed").inc()
         response = RedirectResponse("/" + (f"?login_error={error}" if error else ""), status_code=303)
         response.delete_cookie(ENTRA_TX_COOKIE, path="/", secure=COOKIE_SECURE, httponly=True, samesite="lax")
         return response
@@ -167,6 +169,7 @@ async def login(body: LoginRequest, request: Request, response: Response):
     failures = await db.recent_login_failures(username, ip, FAILURE_WINDOW_SECONDS)
     if failures["by_user"] >= MAX_FAILURES_PER_USER or failures["by_ip"] >= MAX_FAILURES_PER_IP:
         audit.warning("login throttled user=%s ip=%s", username, ip)
+        LOGINS.labels("password", "throttled").inc()
         raise HTTPException(
             status_code=429,
             detail="Too many failed attempts. Try again later.",
@@ -179,6 +182,7 @@ async def login(body: LoginRequest, request: Request, response: Response):
     if not await verify_password(body.password, user["password_hash"] if user else None):
         await db.record_login_failure(username, ip)
         audit.warning("login failed user=%s ip=%s", username, ip)
+        LOGINS.labels("password", "failed").inc()
         raise HTTPException(status_code=401, detail="Invalid username or password")
 
     await db.clear_login_failures(username)
@@ -186,12 +190,14 @@ async def login(body: LoginRequest, request: Request, response: Response):
     # revealed to someone who does not know its password.
     if user["disabled_at"]:
         audit.warning("login refused: account disabled user=%s ip=%s", username, ip)
+        LOGINS.labels("password", "disabled").inc()
         raise HTTPException(status_code=403, detail="This account is disabled")
     await db.mark_login(user["id"])
     token = new_session_token()
     await db.create_session(user["id"], token_hash(token), SESSION_TTL_SECONDS)
     _start_session(response, token)
     audit.info("login ok user=%s ip=%s", username, ip)
+    LOGINS.labels("password", "ok").inc()
     # Same shape as /me (display name, admin flag), read back from the session.
     return _user_out(request, await db.get_session_user(token_hash(token)))
 

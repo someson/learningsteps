@@ -1,0 +1,116 @@
+# kube-prometheus-stack values for AKS. Installed by install.sh (operator,
+# once and on changes), not by the pipeline: the stack is cluster-scoped
+# (CRDs, ClusterRoles) and CI may only write the learningsteps namespace.
+#
+# Scope: Prometheus + Grafana + the operator + kube-state-metrics.
+# Scraped: the LearningSteps API (PodMonitor), kubelet/cAdvisor (pod CPU,
+# memory), kube-state-metrics (deployments, HPA, restarts), the API server.
+
+# AKS runs the control plane: these targets are not reachable.
+kubeEtcd:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+kubeProxy:
+  enabled: false
+
+# node-exporter needs hostNetwork, hostPID and host mounts, which the
+# namespace's Pod Security level does not allow. Pod-level CPU and memory
+# come from cAdvisor (kubelet) instead.
+nodeExporter:
+  enabled: false
+
+# No receivers (mail, Slack) are configured, so Alertmanager would route
+# alerts nowhere. Firing alerts are visible in Prometheus and Grafana.
+alertmanager:
+  enabled: false
+
+defaultRules:
+  create: true
+  rules:
+    etcd: false
+    kubeControllerManager: false
+    kubeProxy: false
+    kubeSchedulerAlerting: false
+    kubeSchedulerRecording: false
+    node: false
+    nodeExporterAlerting: false
+    nodeExporterRecording: false
+
+prometheus:
+  prometheusSpec:
+    # Pick up PodMonitors, ServiceMonitors and PrometheusRules from every
+    # namespace, not only those carrying this Helm release's label.
+    podMonitorSelectorNilUsesHelmValues: false
+    serviceMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    retention: 7d
+    retentionSize: 8GB
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        memory: 1536Mi
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: managed-csi
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 10Gi
+
+prometheusOperator:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+
+kube-state-metrics:
+  resources:
+    requests:
+      cpu: 20m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+
+grafana:
+  # Reached only through `kubectl port-forward` (Service stays ClusterIP,
+  # no Ingress). Admin credentials come from a Secret that install.sh
+  # creates with a random password; the chart default would be a
+  # well-known one.
+  admin:
+    existingSecret: grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
+  # Dashboards are provisioned from ConfigMaps; nothing to persist.
+  persistence:
+    enabled: false
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 384Mi
+  grafana.ini:
+    analytics:
+      reporting_enabled: false
+      check_for_updates: false
+      check_for_plugin_updates: false
+    news:
+      news_feed_enabled: false
+    plugins:
+      preinstall_disabled: true
+  sidecar:
+    dashboards:
+      # ConfigMaps labelled grafana_dashboard=1; install.sh creates one from
+      # monitoring/grafana/dashboards/learningsteps.json (same file as the
+      # local stack). The annotation puts it into its own folder.
+      folderAnnotation: grafana_folder
+      provider:
+        foldersFromFilesStructure: true

@@ -28,6 +28,8 @@ env:
   TRIVY_IMAGE: aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969
   HADOLINT_IMAGE: hadolint/hadolint:v2.15.1@sha256:32dac94127fd60b7b7e3fbfc65e1383b9b5e25c9bfd7b8536de7a539fe68a12d
   GITLEAKS_IMAGE: ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+  # promtool only (alert rules); same image as the compose monitoring profile.
+  PROMETHEUS_IMAGE: prom/prometheus:v3.15.0@sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e
   RUFF_VERSION: 0.16.9
 
 jobs:
@@ -79,8 +81,11 @@ jobs:
           echo "TEST_ADMIN=ci-admin" >> "$GITHUB_ENV"
           echo "$pw" | docker compose exec -T api python create_user.py ci-admin --admin
 
+      # METRICS_URL: also checks the Prometheus endpoint on its own port.
       - name: API tests
         run: python app/test_api.py
+        env:
+          METRICS_URL: http://localhost:9000/metrics
 
       - name: Container logs
         if: failure()
@@ -177,6 +182,22 @@ jobs:
         run: |
           docker run --rm -v "$PWD:/src" -w /src "$TRIVY_IMAGE" config \
             --severity HIGH,CRITICAL --exit-code 1 k8s-manifests/rendered
+
+      # Applied by an operator (install.sh), not by this pipeline — scanned
+      # all the same.
+      - name: Trivy — monitoring manifests
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src "$TRIVY_IMAGE" config \
+            --severity HIGH,CRITICAL --exit-code 1 k8s-manifests/monitoring
+
+      # A broken rule file would stop the local Prometheus and be rejected
+      # by the operator's admission webhook in AKS.
+      - name: Promtool — alert rules and local Prometheus config
+        run: |
+          docker run --rm -v "$PWD/monitoring/prometheus:/etc/prometheus:ro" \
+            --entrypoint /bin/promtool "$PROMETHEUS_IMAGE" check rules /etc/prometheus/rules.yml
+          docker run --rm -v "$PWD/monitoring/prometheus:/etc/prometheus:ro" \
+            --entrypoint /bin/promtool "$PROMETHEUS_IMAGE" check config --syntax-only /etc/prometheus/prometheus.yml
 
   secrets:
     name: secrets

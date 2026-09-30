@@ -72,6 +72,10 @@ spec:
           ports:
             - name: http
               containerPort: 8000
+            # Prometheus metrics (app/api/metrics.py). Not in the Service:
+            # the PodMonitor scrapes pods directly, Caddy never sees it.
+            - name: metrics
+              containerPort: 9000
           envFrom:
             - configMapRef:
                 name: learningsteps-api
