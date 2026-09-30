@@ -4,7 +4,7 @@
 # Run by the operator (cluster-scoped objects; CI cannot), from any directory:
 #
 #   k8s-manifests/monitoring/install.sh
-#   kubectl port-forward -n monitoring svc/kube-prometheus-stack-grafana 3000:80
+#   k8s-manifests/monitoring/port-forward.sh     # Grafana :3000, Prometheus :9090
 #   kubectl get secret -n monitoring grafana-admin -o jsonpath='{.data.admin-password}' | base64 -d
 #
 # Idempotent. The dashboard and rules are the same files the local compose
@@ -62,6 +62,7 @@ echo "Pod Security check (restricted):"
 kubectl label --dry-run=server --overwrite ns "$NS" pod-security.kubernetes.io/enforce=restricted
 
 echo
-echo "Grafana:    kubectl port-forward -n $NS svc/$RELEASE-grafana 3000:80   → http://localhost:3000"
-echo "Prometheus: kubectl port-forward -n $NS svc/$RELEASE-prometheus 9090:9090 → http://localhost:9090"
-echo "Password:   kubectl get secret -n $NS grafana-admin -o jsonpath='{.data.admin-password}' | base64 -d"
+echo "Grafana + Prometheus on localhost:3000 / :9090 (one terminal, reconnects):"
+echo "  k8s-manifests/monitoring/port-forward.sh"
+echo "  or in the background: overmind start -f k8s-manifests/monitoring/Procfile -r all -D"
+echo "Password: kubectl get secret -n $NS grafana-admin -o jsonpath='{.data.admin-password}' | base64 -d"

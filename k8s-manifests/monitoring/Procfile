@@ -1,0 +1,12 @@
+# Grafana and Prometheus from AKS on localhost, managed by Overmind
+# (brew install overmind tmux). From the repo root:
+#
+#   overmind start -f k8s-manifests/monitoring/Procfile -r all -D   # background
+#   overmind status | overmind echo | overmind quit
+#
+# -r all restarts a forward when kubectl exits (pod restart, rollout,
+# install.sh); the sleep keeps a permanent error (port in use, expired
+# login) from restarting it in a tight loop. Without Overmind:
+# port-forward.sh does the same in one terminal.
+grafana: kubectl port-forward -n monitoring --address 127.0.0.1 svc/kube-prometheus-stack-grafana ${GRAFANA_PORT:-3000}:80; sleep 3
+prometheus: kubectl port-forward -n monitoring --address 127.0.0.1 svc/kube-prometheus-stack-prometheus ${PROMETHEUS_PORT:-9090}:9090; sleep 3
