@@ -1,15 +1,14 @@
 # Prometheus, Grafana and the Prometheus Operator (kube-prometheus-stack).
 #
-# Pod Security: enforce "baseline", warn/audit "restricted". The stack is
-# installed without node-exporter (hostNetwork/hostPID) and should satisfy
-# "restricted"; install.sh checks that with a server-side dry run and says
-# whether enforce can be raised. It was not verified against a live cluster
-# when this was written.
+# Pod Security "restricted", like the learningsteps namespace. Possible
+# because node-exporter (hostNetwork/hostPID) is not installed; verified on
+# the cluster with install.sh's server-side dry run (no violations), which
+# keeps running on every install as a check.
 apiVersion: v1
 kind: Namespace
 metadata:
   name: monitoring
   labels:
-    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/enforce: restricted
     pod-security.kubernetes.io/warn: restricted
     pod-security.kubernetes.io/audit: restricted

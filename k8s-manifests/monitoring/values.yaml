@@ -91,12 +91,14 @@ grafana:
   # Dashboards are provisioned from ConfigMaps; nothing to persist.
   persistence:
     enabled: false
+  # Grafana 13 was OOMKilled at 384Mi while opening dashboards; ~300Mi
+  # resident is normal for it. Plenty of room on 2 x D2s_v6 (8 GiB each).
   resources:
     requests:
       cpu: 50m
-      memory: 128Mi
+      memory: 256Mi
     limits:
-      memory: 384Mi
+      memory: 768Mi
   grafana.ini:
     analytics:
       reporting_enabled: false
