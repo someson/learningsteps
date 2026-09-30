@@ -1,6 +1,12 @@
 # Weekly version updates. Security updates are enabled separately in the
 # repo settings and arrive as soon as an advisory is published.
 #
+# Groups apply to version updates only unless they say
+# `applies-to: security-updates`; without such a group every advisory opens
+# its own PR, and PRs touching the same lockfile (go.sum, package-lock.json)
+# then conflict with each other after the first merge. Hence one security
+# group per ecosystem next to the version group.
+#
 # Chainguard's free images publish only `latest`, so the Dockerfile digests
 # are the only thing that moves them — each bump can change the Python or Go
 # version; CI (tests + Trivy) is the gate.
@@ -13,12 +19,19 @@ updates:
   - package-ecosystem: pip
     directory: /app/api
     schedule: { interval: weekly }
+    groups:
+      pip-security:
+        applies-to: security-updates
+        patterns: ["*"]
 
   - package-ecosystem: npm
     directory: /app/frontend
     schedule: { interval: weekly }
     groups:
       frontend-deps:
+        patterns: ["*"]
+      frontend-security:
+        applies-to: security-updates
         patterns: ["*"]
 
   - package-ecosystem: docker
@@ -35,10 +48,21 @@ updates:
     groups:
       go-deps:
         patterns: ["*"]
+      go-security:
+        applies-to: security-updates
+        patterns: ["*"]
+    ignore:
+      # cel-go 0.29 changed interpreter.NewCall; Caddy v2.11.4 (latest) does
+      # not build against it. Lift when a Caddy release supports it.
+      - dependency-name: github.com/google/cel-go
+        versions: [">= 0.29.0"]
 
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly }
     groups:
       actions:
+        patterns: ["*"]
+      actions-security:
+        applies-to: security-updates
         patterns: ["*"]
