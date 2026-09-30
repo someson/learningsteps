@@ -56,8 +56,8 @@ kubectl create configmap learningsteps-dashboard -n "$NS" \
 
 kubectl rollout status -n "$NS" deploy/"$RELEASE"-grafana --timeout=180s
 
-# Would every running pod pass Pod Security "restricted"? No warnings below
-# means namespace.yaml can switch enforce to restricted.
+# Every running pod must pass Pod Security "restricted" (the namespace
+# enforces it for new pods). Warnings below name pods that would not.
 echo "Pod Security check (restricted):"
 kubectl label --dry-run=server --overwrite ns "$NS" pod-security.kubernetes.io/enforce=restricted
 
