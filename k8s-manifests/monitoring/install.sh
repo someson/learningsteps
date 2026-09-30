@@ -64,4 +64,5 @@ kubectl label --dry-run=server --overwrite ns "$NS" pod-security.kubernetes.io/e
 echo
 echo "Grafana + Prometheus on localhost:3000 / :9090 (one terminal, reconnects):"
 echo "  k8s-manifests/monitoring/port-forward.sh"
+echo "  or in the background: overmind start -f k8s-manifests/monitoring/Procfile -r all -D"
 echo "Password: kubectl get secret -n $NS grafana-admin -o jsonpath='{.data.admin-password}' | base64 -d"

@@ -198,3 +198,6 @@ k8s-manifests/rendered/
 node_modules/
 app/api/static/
 *.tsbuildinfo
+
+# Overmind control socket (k8s-manifests/monitoring/Procfile)
+.overmind.sock
