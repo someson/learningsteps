@@ -187,6 +187,7 @@ backend.hcl
 # Working notes in the repo root (TODO, EXERCISE, CLAUDE). Anchored with a
 # leading slash, so app/README.md and infra-terraform/README.md stay tracked.
 /*.md
+!/README.md
 
 # Rendered Kubernetes manifests (contain environment-specific IDs)
 k8s-manifests/rendered/
