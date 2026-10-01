@@ -1,11 +1,3 @@
-# LearningSteps — From Manual to Automated
-
-Technical writeup of the capstone: the LearningSteps FastAPI + PostgreSQL API, previously deployed by hand on two Azure VMs, rebuilt as code — Terraform, Docker, AKS, GitHub Actions — with security scanning at every stage.
-
-This document is a **build log**: the commands in the order they were run, what each one does, and the problems hit along the way with how they were solved. Each step can be repeated from a clean checkout.
-
-> Status (30.09.2026): Steps 1–16 are done. The app is live at `https://<INGRESS_IP>/` (current address: `terraform -chdir=infra-terraform output -raw ingress_public_ip`) — a web UI with sign-in through Microsoft Entra ID, deployed automatically from `main` by GitHub Actions after build, test and security scans. Monitoring (Step 16) runs locally and in AKS. Open: `destroy` → `apply` round trip (see [Next](#next)).
-
 ## Repository layout
 
 ```
@@ -725,8 +717,3 @@ Alternatives considered for browser access without port-forward, not implemented
 | No Alertmanager: alerts are only visible, not sent | No receiver configured | Alertmanager + e-mail/Teams receiver |
 | No node-exporter: no node-level disk/network metrics | Needs privileged host access | Azure Monitor for nodes, or a privileged exporter namespace |
 | Grafana / Prometheus only via port-forward | Deliberate: no internet exposure | Grafana behind Caddy with Entra sign-in, or Azure Managed Grafana (16.6) |
-
-## Next
-
-- **Security enforcement demo** — live at the presentation (walkthrough in `PRESENTATION.md`): `PyYAML==5.3` → `scan-image` fails; an NSG rule open to the internet → `scan-iac` fails.
-- **Infrastructure recovery** — `terraform destroy` + `terraform apply`, then one pipeline run and `install.sh`, recorded end to end.
